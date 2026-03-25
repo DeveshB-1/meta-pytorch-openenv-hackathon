@@ -1,0 +1,37 @@
+name: openenv-hackathon
+version: "1.0.0"
+description: "OpenEnv environment for Meta PyTorch Hackathon 2026"
+author: "Devesh B"
+
+# TODO: Fill in after choosing your problem statement
+environment:
+  type: custom
+  entry_point: src/environment/env.py
+  class: HackathonEnv
+
+tasks:
+  - id: task_easy
+    name: "Task 1 - Easy"
+    difficulty: easy
+    grader: src/graders/task_easy_grader.py
+
+  - id: task_medium
+    name: "Task 2 - Medium"
+    difficulty: medium
+    grader: src/graders/task_medium_grader.py
+
+  - id: task_hard
+    name: "Task 3 - Hard"
+    difficulty: hard
+    grader: src/graders/task_hard_grader.py
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  endpoints:
+    - /reset
+    - /step
+    - /state
+    - /tasks
+    - /grader
+    - /baseline
