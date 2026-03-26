@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL Query Environment</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: monospace; background: #0f0f0f; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+  header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 14px; color: #fff; font-weight: bold; }
+  .badge { background: #2a2a2a; border: 1px solid #444; border-radius: 4px; padding: 3px 8px; font-size: 11px; color: #aaa; }
+  .badge.green { border-color: #2d6a2d; color: #5fba5f; }
+
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* LEFT PANEL */
+  .left { width: 300px; min-width: 300px; background: #141414; border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; overflow: hidden; }
+
+  .panel-header { padding: 10px 14px; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #222; }
+
+  .task-select { padding: 10px 14px; border-bottom: 1px solid #222; }
+  .task-select select { width: 100%; background: #1f1f1f; border: 1px solid #333; color: #e0e0e0; padding: 7px 10px; border-radius: 4px; font-family: monospace; font-size: 12px; cursor: pointer; }
+  .task-select select:focus { outline: none; border-color: #555; }
+
+  .btn-reset { margin: 10px 14px; padding: 8px; background: #1a3a1a; border: 1px solid #2d6a2d; color: #5fba5f; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px; width: calc(100% - 28px); }
+  .btn-reset:hover { background: #1f4a1f; }
+
+  .questions { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .question-item { padding: 10px 14px; cursor: pointer; border-left: 3px solid transparent; transition: all 0.1s; }
+  .question-item:hover { background: #1a1a1a; }
+  .question-item.active { background: #1a1a2e; border-left-color: #4a9eff; }
+  .question-item.solved { border-left-color: #2d6a2d; }
+  .question-item.solved.active { background: #0a1f0a; border-left-color: #5fba5f; }
+  .q-id { font-size: 10px; color: #666; margin-bottom: 3px; }
+  .question-item.active .q-id { color: #4a9eff; }
+  .question-item.solved .q-id { color: #5fba5f; }
+  .q-text { font-size: 12px; color: #ccc; line-height: 1.4; }
+  .q-cols { font-size: 10px; color: #555; margin-top: 4px; }
+  .question-item.active .q-cols { color: #444; }
+
+  .score-box { padding: 12px 14px; border-top: 1px solid #222; background: #111; }
+  .score-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .score-bar-bg { background: #222; border-radius: 3px; height: 6px; margin-bottom: 6px; }
+  .score-bar { height: 6px; border-radius: 3px; background: #2d6a2d; transition: width 0.4s; }
+  .score-val { font-size: 20px; color: #5fba5f; font-weight: bold; }
+  .score-step { font-size: 11px; color: #555; margin-top: 4px; }
+
+  /* RIGHT PANEL */
+  .right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .editor-area { display: flex; flex-direction: column; border-bottom: 1px solid #2a2a2a; }
+  .editor-header { padding: 8px 14px; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; align-items: center; }
+  .hint-btns { display: flex; gap: 6px; }
+  .btn-hint { background: #1a1a1a; border: 1px solid #333; color: #888; padding: 3px 8px; border-radius: 3px; font-family: monospace; font-size: 11px; cursor: pointer; }
+  .btn-hint:hover { border-color: #555; color: #aaa; }
+
+  textarea#sql { background: #0f0f0f; color: #e0e0e0; border: none; padding: 14px; font-family: monospace; font-size: 13px; resize: none; height: 140px; width: 100%; outline: none; line-height: 1.6; }
+  textarea#sql::placeholder { color: #333; }
+
+  .run-bar { padding: 8px 14px; background: #111; border-top: 1px solid #1a1a1a; display: flex; align-items: center; gap: 10px; }
+  .btn-run { background: #1a3a1a; border: 1px solid #2d6a2d; color: #5fba5f; padding: 7px 20px; border-radius: 4px; font-family: monospace; font-size: 13px; cursor: pointer; font-weight: bold; }
+  .btn-run:hover { background: #1f4a1f; }
+  .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+  .run-info { font-size: 11px; color: #555; }
+  .reward-pill { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+  .reward-pill.correct { background: #0a2a0a; color: #5fba5f; border: 1px solid #2d6a2d; }
+  .reward-pill.partial { background: #2a1a00; color: #f0a030; border: 1px solid #604010; }
+  .reward-pill.error   { background: #2a0a0a; color: #e05050; border: 1px solid #601010; }
+  .reward-pill.empty   { background: #1a1a2e; color: #4a9eff; border: 1px solid #1a3a6a; }
+
+  /* RESULTS */
+  .results-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .results-header { padding: 8px 14px; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; }
+  .results-scroll { flex: 1; overflow: auto; padding: 12px 14px; }
+
+  .result-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  .result-table th { background: #1a1a1a; color: #888; padding: 6px 10px; text-align: left; border: 1px solid #2a2a2a; font-weight: normal; }
+  .result-table td { padding: 6px 10px; border: 1px solid #1f1f1f; color: #ccc; }
+  .result-table tr:hover td { background: #151515; }
+
+  .msg { font-size: 12px; padding: 10px; border-radius: 4px; margin-bottom: 8px; }
+  .msg.error { background: #1a0a0a; border: 1px solid #401010; color: #e05050; }
+  .msg.info  { background: #0a1020; border: 1px solid #102040; color: #4a9eff; }
+  .msg.success { background: #0a1a0a; border: 1px solid #103010; color: #5fba5f; }
+
+  .hint-output { background: #0a0a14; border: 1px solid #1a1a2e; border-radius: 4px; padding: 12px; font-size: 12px; color: #8ab; line-height: 1.7; white-space: pre-wrap; }
+
+  .placeholder { color: #333; font-size: 13px; text-align: center; margin-top: 40px; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #111; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SQL Query Environment</h1>
+  <span class="badge green" id="status-badge">● connected</span>
+  <span class="badge" id="task-badge">no task</span>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: task picker + questions + score -->
+  <div class="left">
+    <div class="task-select">
+      <select id="task-select">
+        <option value="task_easy">Easy — Single Table</option>
+        <option value="task_medium">Medium — JOINs</option>
+        <option value="task_hard">Hard — Window Functions</option>
+      </select>
+    </div>
+    <button class="btn-reset" onclick="resetEnv()">↺ Reset Episode</button>
+
+    <div class="panel-header">Questions</div>
+    <div class="questions" id="questions-list">
+      <div class="placeholder" style="margin-top:20px; color:#333;">Click Reset to start</div>
+    </div>
+
+    <div class="score-box">
+      <div class="score-label">Episode Score</div>
+      <div class="score-bar-bg"><div class="score-bar" id="score-bar" style="width:0%"></div></div>
+      <div class="score-val" id="score-val">—</div>
+      <div class="score-step" id="score-step">Steps: 0 / 10</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: editor + results -->
+  <div class="right">
+    <div class="editor-area">
+      <div class="editor-header">
+        <span>SQL Editor</span>
+        <div class="hint-btns">
+          <button class="btn-hint" onclick="getHint('schema')">schema hint</button>
+          <button class="btn-hint" onclick="getHint('employees')">sample: employees</button>
+          <button class="btn-hint" onclick="getHint('projects')">sample: projects</button>
+          <button class="btn-hint" onclick="getHint('assignments')">sample: assignments</button>
+        </div>
+      </div>
+      <textarea id="sql" placeholder="SELECT * FROM employees LIMIT 5" spellcheck="false"></textarea>
+      <div class="run-bar">
+        <button class="btn-run" id="run-btn" onclick="runQuery()">▶ Run</button>
+        <span class="run-info" id="run-info">Select a question, write SQL, hit Run</span>
+        <span id="reward-pill"></span>
+      </div>
+    </div>
+
+    <div class="results-area">
+      <div class="results-header">
+        <span id="results-label">Results</span>
+        <span id="row-count" style="color:#555;"></span>
+      </div>
+      <div class="results-scroll" id="results-area">
+        <div class="placeholder">Results will appear here</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let currentTask = null;
+let selectedQuestion = null;
+let stepCount = 0;
+let solvedQuestions = new Set();
+let questionsData = [];  // store questions so onclick doesn't need inline JSON
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+async function resetEnv() {
+  const taskId = document.getElementById('task-select').value;
+  const data = await api('POST', '/reset', { task_id: taskId });
+  const obs = data.observation;
+
+  currentTask = taskId;
+  stepCount = 0;
+  solvedQuestions = new Set();
+  selectedQuestion = null;
+
+  document.getElementById('task-badge').textContent = taskId.replace('task_', '');
+  document.getElementById('score-val').textContent = '0.00';
+  document.getElementById('score-bar').style.width = '0%';
+  document.getElementById('score-step').textContent = 'Steps: 0 / 10';
+  document.getElementById('results-area').innerHTML = '<div class="placeholder">Select a question and write SQL</div>';
+  document.getElementById('reward-pill').innerHTML = '';
+  document.getElementById('run-info').textContent = 'Select a question, write SQL, hit Run';
+  document.getElementById('row-count').textContent = '';
+
+  renderQuestions(obs.questions);
+  setStatus('connected');
+}
+
+function renderQuestions(questions) {
+  questionsData = questions;
+  const el = document.getElementById('questions-list');
+  el.innerHTML = questions.map(q => `
+    <div class="question-item ${q.id === selectedQuestion ? 'active' : ''} ${solvedQuestions.has(q.id) ? 'solved' : ''}"
+         id="q-${q.id}">
+      <div class="q-id">${q.id}</div>
+      <div class="q-text">${q.text}</div>
+      <div class="q-cols">cols: ${q.columns.join(', ')}</div>
+    </div>
+  `).join('');
+
+  // Attach click listeners after rendering
+  questions.forEach(q => {
+    document.getElementById('q-' + q.id).addEventListener('click', () => selectQuestion(q.id));
+  });
+}
+
+function selectQuestion(id) {
+  selectedQuestion = id;
+  document.getElementById('run-info').textContent = id;
+  document.querySelectorAll('.question-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('q-' + id);
+  if (el) el.classList.add('active');
+}
+
+async function runQuery() {
+  if (!currentTask) { alert('Click Reset first'); return; }
+  if (!selectedQuestion) { alert('Select a question first'); return; }
+
+  const sql = document.getElementById('sql').value.trim();
+  if (!sql) { alert('Write a SQL query first'); return; }
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  const data = await api('POST', '/step', {
+    action_type: 'query',
+    payload: { sql, question_id: selectedQuestion }
+  });
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run';
+
+  stepCount = data.observation.step;
+  document.getElementById('score-step').textContent = `Steps: ${stepCount} / 10`;
+
+  const reward = data.reward;
+  const rows   = data.observation.rows;
+  const error  = data.observation.error;
+
+  // Reward pill
+  let pillClass, pillText;
+  if (reward === 1.0)       { pillClass = 'correct'; pillText = '✓ +1.0 correct'; solvedQuestions.add(selectedQuestion); }
+  else if (reward === 0.05) { pillClass = 'partial'; pillText = '~ +0.05 non-empty'; }
+  else if (reward === -0.01){ pillClass = 'error';   pillText = '✗ -0.01 error'; }
+  else                      { pillClass = 'empty';   pillText = '○ 0.0'; }
+
+  document.getElementById('reward-pill').innerHTML =
+    `<span class="reward-pill ${pillClass}">${pillText}</span>`;
+
+  // Re-render questions to show solved state
+  renderQuestions(questionsData);
+
+  // Render results
+  renderResults(rows, error);
+
+  // Fetch and update score
+  const gradeData = await api('GET', `/grader?task_id=${currentTask}`);
+  const score = gradeData.score ?? 0;
+  document.getElementById('score-val').textContent = score.toFixed(2);
+  document.getElementById('score-bar').style.width = (score * 100) + '%';
+  document.getElementById('score-bar').style.background = score >= 0.8 ? '#3a9a3a' : score >= 0.4 ? '#a06020' : '#2d6a2d';
+}
+
+async function getHint(type) {
+  if (!currentTask) { alert('Click Reset first'); return; }
+
+  let payload;
+  if (type === 'schema') {
+    payload = { type: 'schema' };
+  } else {
+    payload = { type: 'sample_rows', table: type };
+  }
+
+  const data = await api('POST', '/step', { action_type: 'hint', payload });
+  stepCount = data.observation.step || stepCount;
+  document.getElementById('score-step').textContent = `Steps: ${stepCount} / 10`;
+  document.getElementById('reward-pill').innerHTML =
+    `<span class="reward-pill empty">hint (0 reward, costs a step)</span>`;
+
+  const obs = data.observation;
+  const area = document.getElementById('results-area');
+
+  if (type === 'schema') {
+    area.innerHTML = `<div class="hint-output">${obs.content}</div>`;
+    document.getElementById('results-label').textContent = 'Schema Hint';
+  } else {
+    renderResults(obs.rows, obs.error);
+    document.getElementById('results-label').textContent = `Sample: ${type}`;
+  }
+}
+
+function renderResults(rows, error) {
+  const area = document.getElementById('results-area');
+  document.getElementById('results-label').textContent = 'Results';
+
+  if (error) {
+    area.innerHTML = `<div class="msg error">SQL Error: ${error}</div>`;
+    document.getElementById('row-count').textContent = '';
+    return;
+  }
+  if (!rows || rows.length === 0) {
+    area.innerHTML = `<div class="msg info">Query returned 0 rows</div>`;
+    document.getElementById('row-count').textContent = '0 rows';
+    return;
+  }
+
+  const cols = Object.keys(rows[0]);
+  const thead = `<tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr>`;
+  const tbody = rows.map(r =>
+    `<tr>${cols.map(c => `<td>${r[c] === null ? '<span style="color:#444">NULL</span>' : r[c]}</td>`).join('')}</tr>`
+  ).join('');
+
+  area.innerHTML = `<table class="result-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+  document.getElementById('row-count').textContent = `${rows.length} row${rows.length !== 1 ? 's' : ''}`;
+}
+
+function setStatus(s) {
+  const el = document.getElementById('status-badge');
+  el.textContent = s === 'connected' ? '● connected' : '● offline';
+  el.className = 'badge ' + (s === 'connected' ? 'green' : '');
+}
+
+// Ctrl+Enter to run
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runQuery();
+});
+
+// Check server on load
+fetch('/health').then(r => r.ok ? setStatus('connected') : setStatus('offline')).catch(() => setStatus('offline'));
+</script>
+</body>
+</html>

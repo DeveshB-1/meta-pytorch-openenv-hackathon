@@ -1,28 +1,33 @@
-name: openenv-hackathon
+name: openenv-sql-query-env
 version: "1.0.0"
-description: "OpenEnv environment for Meta PyTorch Hackathon 2026"
+description: >
+  An OpenEnv-compliant environment where an AI agent writes SQL queries
+  to answer natural language business intelligence questions about an
+  in-memory SQLite database (employees, projects, assignments).
 author: "Devesh B"
 
-# TODO: Fill in after choosing your problem statement
 environment:
   type: custom
   entry_point: src/environment/env.py
-  class: HackathonEnv
+  class: SQLQueryEnv
 
 tasks:
   - id: task_easy
-    name: "Task 1 - Easy"
+    name: "Easy — Single Table Queries"
     difficulty: easy
+    description: "Query a single table using SELECT, WHERE, GROUP BY, ORDER BY, LIMIT."
     grader: src/graders/task_easy_grader.py
 
   - id: task_medium
-    name: "Task 2 - Medium"
+    name: "Medium — JOINs and Aggregations"
     difficulty: medium
+    description: "Join multiple tables and compute aggregations across them."
     grader: src/graders/task_medium_grader.py
 
   - id: task_hard
-    name: "Task 3 - Hard"
+    name: "Hard — Window Functions and Subqueries"
     difficulty: hard
+    description: "Use window functions, subqueries, and CTEs for complex analytical queries."
     grader: src/graders/task_hard_grader.py
 
 api:
@@ -35,3 +40,5 @@ api:
     - /tasks
     - /grader
     - /baseline
+    - /health
+    - /mcp
