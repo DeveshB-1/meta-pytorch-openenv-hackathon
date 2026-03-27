@@ -1,9 +1,11 @@
-name: openenv-sql-query-env
-version: "1.0.0"
+name: tempo-sql-analytics-env
+version: "2.0.0"
 description: >
-  An OpenEnv-compliant environment where an AI agent writes SQL queries
-  to answer natural language business intelligence questions about an
-  in-memory SQLite database (employees, projects, assignments).
+  An OpenEnv-compliant RL environment where an AI agent writes SQL queries
+  to answer natural-language analytics questions about Tempo, a music
+  streaming platform. The SQLite database covers artists, songs, users,
+  streams (with skip/completion/source data), and playlists across
+  25 artists, 75 songs, 50 users, 419 streams, 35 playlists.
 author: "Devesh B"
 
 environment:
@@ -13,21 +15,21 @@ environment:
 
 tasks:
   - id: task_easy
-    name: "Easy — Single Table Queries"
+    name: "Easy — Tempo Single-Table Queries"
     difficulty: easy
-    description: "Query a single table using SELECT, WHERE, GROUP BY, ORDER BY, LIMIT."
+    description: "Query artists, songs, and users using SELECT, WHERE, GROUP BY, ORDER BY, LIMIT."
     grader: src/graders/task_easy_grader.py
 
   - id: task_medium
-    name: "Medium — JOINs and Aggregations"
+    name: "Medium — Tempo JOINs and Aggregations"
     difficulty: medium
-    description: "Join multiple tables and compute aggregations across them."
+    description: "Join streams with songs, artists, and users to compute play counts, completion rates, and discovery patterns."
     grader: src/graders/task_medium_grader.py
 
   - id: task_hard
-    name: "Hard — Window Functions and Subqueries"
+    name: "Hard — Tempo Window Functions and CTEs"
     difficulty: hard
-    description: "Use window functions, subqueries, and CTEs for complex analytical queries."
+    description: "Use window functions, CTEs, and subqueries to uncover viral hits, skip patterns, and listener behaviour."
     grader: src/graders/task_hard_grader.py
 
 api:

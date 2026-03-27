@@ -39,7 +39,7 @@ Everything needed to pick up and continue this project from scratch.
 | **Observation** | Query result rows, error, step count, task questions |
 | **Reward** | correct=1.0, non-empty=0.05, error=-0.01, hint=0.0 |
 | **Max steps** | 10 per episode |
-| **Database** | In-memory SQLite: artists (15), songs (40), users (25), streams (194), playlists (20), playlist_songs (66) |
+| **Database** | In-memory SQLite: artists (25), songs (75), users (50), streams (419), playlists (35), playlist_songs (132) |
 
 ---
 
