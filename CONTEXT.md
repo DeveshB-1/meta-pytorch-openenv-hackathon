@@ -47,16 +47,16 @@ Everything needed to pick up and continue this project from scratch.
 
 | Step | File | Status |
 |------|------|--------|
-| 1 | `src/tasks/__init__.py` | ✅ DB + 15 questions with pre-computed expected answers |
+| 1 | `src/tasks/__init__.py` | ✅ Tempo DB (25/75/50/419/35/132) + 15 questions with pre-computed expected answers |
 | 2 | `src/graders/__init__.py` | ✅ BaseGrader, normalize_row, rows_match, SCORE_MAP |
 | 3 | `src/graders/task_*_grader.py` | ✅ 3 thin subclasses, one per task |
 | 4 | `src/environment/env.py` | ✅ SQLQueryEnv with reset/step/state/hints |
-| 5 | `src/baseline.py` | ✅ Template SQL + Groq LLM mode (auto-detects API key) |
+| 5 | `src/baseline.py` | ✅ Template SQL (1.0 guaranteed) + Groq LLM mode (auto-detects API key) |
 | 6 | `src/environment/server.py` | ✅ All endpoints wired + /health + /mcp + /ui |
 | 7 | `src/static/ui.html` | ✅ Interactive SQL playground |
-| 8 | `scripts/run_baseline.py` | ✅ HTTP client, scores 1.0 on all 3 tasks |
+| 8 | `scripts/run_baseline.py` | ✅ HTTP client, template scores 1.0 on all 3 tasks |
 | 9 | `.github/workflows/deploy.yml` | ✅ Auto-deploy to HF Spaces on push to main |
-| 10 | `openenv.yaml` + `README.md` | ✅ Updated with real descriptions |
+| 10 | `openenv.yaml` + `README.md` | ✅ Tempo branding, v2.0.0, full docs |
 
 ---
 
@@ -88,7 +88,7 @@ meta-pytorch-openenv-hackathon/
 │       └── ui.html                      ← interactive SQL playground UI
 ├── scripts/
 │   ├── run_baseline.py                  ← HTTP client baseline runner
-│   └── validate.py                      ← pre-submission validation (6 checks)
+│   └── validate.py                      ← pre-submission validation (7 checks)
 └── tests/
     └── __init__.py
 ```
@@ -113,12 +113,13 @@ meta-pytorch-openenv-hackathon/
 
 ## Differentiators
 
-1. **Groq LLM Baseline** — Llama 3.3 70B writes SQL dynamically via Groq API, scores 1.0 on all tasks
-2. **Hint Action** — agent can request schema DDL or sample rows (costs a step)
-3. **MCP Endpoint** — JSON-RPC 2.0 protocol, any MCP-compatible client works out of the box
-4. **Interactive UI** — `/ui` lets humans play the environment in a browser
-5. **Intermediate Rewards** — per-step signals (not just final score) make env more RL-friendly
-6. **Auto-deploy** — GitHub Actions pushes to HF Spaces on every commit
+1. **Tempo Domain** — music streaming behavioural data (skip rates, completion, source attribution, genre rankings) across 25 artists, 75 songs, 50 users, 419 streams
+2. **Groq LLM Baseline** — Llama 3.3 70B writes SQL dynamically from schema + question; template baseline always scores 1.0
+3. **Hint Action** — agent can request schema DDL or sample rows (costs a step)
+4. **MCP Endpoint** — JSON-RPC 2.0 protocol, any MCP-compatible client works out of the box
+5. **Interactive UI** — `/ui` lets humans play the environment in a browser
+6. **Intermediate Rewards** — per-step signals (not just final score) make env more RL-friendly
+7. **Auto-deploy** — GitHub Actions pushes to HF Spaces on every commit
 
 ---
 
@@ -152,7 +153,7 @@ python scripts/validate.py
 python scripts/run_baseline.py
 
 # Docker
-docker build -t openenv-sql . && docker run -p 7860:7860 openenv-sql
+docker build -t tempo-openenv . && docker run -p 7860:7860 tempo-openenv
 ```
 
 ---
@@ -173,10 +174,12 @@ docker build -t openenv-sql . && docker run -p 7860:7860 openenv-sql
 
 ## Submission Checklist
 
-- [x] HF Space deployed and live
+- [x] HF Space deployed and live — https://huggingface.co/spaces/Dev176/openenv-sql-query-env
 - [x] `/reset` responds correctly
-- [x] OpenEnv spec compliant (`openenv.yaml`, typed Pydantic models)
+- [x] OpenEnv spec compliant (`openenv.yaml` v2.0.0, typed Pydantic models)
 - [x] Dockerfile builds and runs on port 7860
-- [x] Baseline script runs without error, scores 1.0
-- [x] 3 tasks with graders (scores 0.0–1.0)
+- [x] Template baseline scores 1.0 on all 15 questions across 3 tasks
+- [x] 3 tasks with graders (easy / medium / hard, scores 0.0–1.0)
+- [x] validate.py passes 7/7 checks
+- [x] Tempo domain: 25 artists, 75 songs, 50 users, 419 streams, 35 playlists
 - [ ] Submit HF Space URL to Scaler dashboard before April 7, 2026 11:59 PM IST
