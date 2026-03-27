@@ -19,102 +19,126 @@ BASELINE_QUERIES: dict[str, str] = {
 
     # EASY
     "easy_q1": """
-        SELECT id, name, department, salary, hire_date, manager_id
-        FROM employees
-        WHERE department = 'Engineering'
+        SELECT id, title, genre, bpm, mood, duration_sec, release_year
+        FROM songs
+        WHERE genre = 'Electronic'
     """,
     "easy_q2": """
-        SELECT id, name, department, salary
-        FROM employees
-        ORDER BY salary DESC
+        SELECT id, name, country, monthly_listeners
+        FROM artists
+        ORDER BY monthly_listeners DESC, name ASC
         LIMIT 5
     """,
     "easy_q3": """
-        SELECT department, COUNT(*) AS employee_count
-        FROM employees
-        GROUP BY department
+        SELECT genre, COUNT(*) AS song_count
+        FROM songs
+        GROUP BY genre
+        ORDER BY song_count DESC, genre ASC
     """,
     "easy_q4": """
-        SELECT id, name, department, salary, hire_date
-        FROM employees
-        WHERE hire_date > '2020-01-01'
+        SELECT id, username, country, subscription_tier
+        FROM users
+        WHERE subscription_tier = 'premium'
     """,
     "easy_q5": """
-        SELECT department, ROUND(AVG(salary), 4) AS avg_salary
-        FROM employees
-        GROUP BY department
+        SELECT subscription_tier, COUNT(*) AS user_count
+        FROM users
+        GROUP BY subscription_tier
     """,
 
     # MEDIUM
     "medium_q1": """
-        SELECT DISTINCT e.name, p.name AS project_name
-        FROM employees e
-        JOIN assignments a ON e.id = a.employee_id
-        JOIN projects p ON a.project_id = p.id
+        SELECT s.title, COUNT(st.id) AS stream_count
+        FROM songs s
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY s.id, s.title
+        ORDER BY stream_count DESC, s.title ASC
+        LIMIT 10
     """,
     "medium_q2": """
-        SELECT e.name, SUM(a.hours_worked) AS total_hours
-        FROM employees e
-        JOIN assignments a ON e.id = a.employee_id
-        GROUP BY e.id, e.name
+        SELECT a.name AS artist_name,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        ORDER BY completion_rate DESC, a.name ASC
     """,
     "medium_q3": """
-        SELECT DISTINCT e.id, e.name, e.department
-        FROM employees e
-        JOIN assignments a ON e.id = a.employee_id
-        JOIN projects p ON a.project_id = p.id
-        WHERE p.budget > 100000
+        SELECT source, COUNT(*) AS stream_count
+        FROM streams
+        GROUP BY source
+        ORDER BY stream_count DESC, source ASC
     """,
     "medium_q4": """
-        SELECT DISTINCT e.department
-        FROM employees e
-        WHERE e.department NOT IN (
-            SELECT DISTINCT e2.department
-            FROM employees e2
-            JOIN assignments a ON e2.id = a.employee_id
-        )
+        SELECT u.username, COUNT(DISTINCT st.song_id) AS unique_songs
+        FROM users u
+        JOIN streams st ON u.id = st.user_id
+        GROUP BY u.id, u.username
+        ORDER BY unique_songs DESC, u.username ASC
+        LIMIT 10
     """,
     "medium_q5": """
-        SELECT role, ROUND(AVG(hours_worked), 4) AS avg_hours
-        FROM assignments
-        GROUP BY role
+        SELECT s.mood, COUNT(st.id) AS stream_count
+        FROM songs s
+        JOIN streams st ON s.id = st.song_id
+        WHERE st.completed = 1
+        GROUP BY s.mood
+        ORDER BY stream_count DESC, s.mood ASC
     """,
 
     # HARD
     "hard_q1": """
-        SELECT name, department, salary,
-               RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS salary_rank
-        FROM employees
-        ORDER BY department, salary_rank
+        SELECT s.title, COUNT(st.id) AS stream_count,
+               RANK() OVER (PARTITION BY s.genre ORDER BY COUNT(st.id) DESC) AS genre_rank
+        FROM songs s
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY s.id, s.title, s.genre
+        ORDER BY s.genre ASC, genre_rank ASC, s.title ASC
     """,
     "hard_q2": """
-        SELECT e.id, e.name, e.department, e.salary
-        FROM employees e
-        WHERE e.salary > (
-            SELECT AVG(salary) FROM employees WHERE department = e.department
-        )
+        SELECT u.username, u.country,
+               COUNT(st.id) AS total_streams,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+        FROM users u
+        JOIN streams st ON u.id = st.user_id
+        WHERE u.subscription_tier = 'free'
+        GROUP BY u.id, u.username, u.country
+        HAVING COUNT(st.id) > 5
     """,
     "hard_q3": """
-        SELECT name, budget, start_date,
-               SUM(budget) OVER (ORDER BY start_date ROWS UNBOUNDED PRECEDING) AS running_total
-        FROM projects
-        ORDER BY start_date
+        WITH song_streams AS (
+            SELECT song_id, COUNT(*) AS stream_count
+            FROM streams
+            GROUP BY song_id
+        ),
+        avg_streams AS (
+            SELECT AVG(stream_count) AS avg_count FROM song_streams
+        )
+        SELECT s.title, s.genre, ss.stream_count
+        FROM songs s
+        JOIN song_streams ss ON s.id = ss.song_id
+        WHERE ss.stream_count > (SELECT avg_count FROM avg_streams)
+        ORDER BY ss.stream_count DESC, s.title ASC
     """,
     "hard_q4": """
-        SELECT e.name, COUNT(a.project_id) AS project_count
-        FROM employees e
-        JOIN assignments a ON e.id = a.employee_id
-        GROUP BY e.id, e.name
-        HAVING COUNT(a.project_id) > 2
+        SELECT a.name AS artist_name,
+               SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skip_count,
+               COUNT(st.id) AS total_streams,
+               ROUND(100.0 * SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) / COUNT(st.id), 2) AS skip_rate
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        ORDER BY skip_rate DESC, a.name ASC
     """,
     "hard_q5": """
-        SELECT department, name, hire_date
-        FROM (
-            SELECT department, name, hire_date,
-                   RANK() OVER (PARTITION BY department ORDER BY hire_date DESC) AS rk
-            FROM employees
-        )
-        WHERE rk = 1
+        SELECT p.name AS playlist_name, u.username, COUNT(ps.song_id) AS song_count
+        FROM playlists p
+        JOIN users u ON p.user_id = u.id
+        JOIN playlist_songs ps ON p.id = ps.playlist_id
+        GROUP BY p.id, p.name, u.username
+        ORDER BY song_count DESC, p.name ASC
     """,
 }
 

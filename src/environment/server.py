@@ -164,7 +164,7 @@ def health():
     """Liveness probe — verifies DB is live and seeded."""
     try:
         counts = {}
-        for table in ("employees", "projects", "assignments"):
+        for table in ("artists", "songs", "users", "streams", "playlists", "playlist_songs"):
             rows, _ = env._execute_sql(f"SELECT COUNT(*) AS n FROM {table}")
             counts[table] = rows[0]["n"] if rows else 0
         return {"status": "ok", "db_stats": counts}

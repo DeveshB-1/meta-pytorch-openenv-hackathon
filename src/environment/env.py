@@ -186,7 +186,7 @@ class SQLQueryEnv(HackathonEnv):
         if hint_type == "schema":
             return {"hint_type": "schema", "content": SCHEMA_DDL}
         if hint_type == "sample_rows":
-            table = payload.get("table", "employees")
+            table = payload.get("table", "songs")
             rows, error = self._execute_sql(f"SELECT * FROM {table} LIMIT 3")
             return {"hint_type": "sample_rows", "table": table, "rows": rows, "error": error}
         return {"error": f"Unknown hint type '{hint_type}'. Use 'schema' or 'sample_rows'."}
