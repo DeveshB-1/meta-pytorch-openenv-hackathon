@@ -30,7 +30,7 @@ Everything needed to pick up and continue this project from scratch.
 
 ## What We Built
 
-**SQL Query Agent Environment** — an OpenEnv-compliant environment where an AI agent writes SQL queries to answer natural language questions about a company database (employees, projects, assignments).
+**Tempo SQL Analytics Environment** — an OpenEnv-compliant environment where an AI agent writes SQL queries to answer natural language questions about Tempo, a music streaming analytics platform.
 
 ### Environment Summary
 | | |
@@ -39,7 +39,7 @@ Everything needed to pick up and continue this project from scratch.
 | **Observation** | Query result rows, error, step count, task questions |
 | **Reward** | correct=1.0, non-empty=0.05, error=-0.01, hint=0.0 |
 | **Max steps** | 10 per episode |
-| **Database** | In-memory SQLite: employees (12), projects (7), assignments (18) |
+| **Database** | In-memory SQLite: artists (15), songs (40), users (25), streams (194), playlists (20), playlist_songs (66) |
 
 ---
 
@@ -166,6 +166,8 @@ docker build -t openenv-sql . && docker run -p 7860:7860 openenv-sql
 - `/baseline` resets env after running — always leaves env in `task_easy`
 - Column aliases in SQL must match `question.columns` exactly for grader to score correctly
 - Expected answers are pre-computed at module load using a reference DB (`_ref` in tasks/__init__.py)
+- All ORDER BY clauses have deterministic tiebreakers (e.g., `ORDER BY stream_count DESC, s.title ASC`) — required for SQLite to produce stable ordering across multiple DB instances
+- When GROQ_API_KEY is set, run_baseline.py uses LLM mode (Groq Llama 3.3 70B) which may not add tiebreakers — template mode (`GROQ_API_KEY=""`) always scores 1.0
 
 ---
 
