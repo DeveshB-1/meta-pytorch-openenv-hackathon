@@ -9,7 +9,7 @@ Everything needed to pick up and continue this project from scratch.
 - **Hackathon:** Meta × PyTorch OpenEnv Hackathon x SST (Scaler School of Technology)
 - **Dashboard:** https://www.scaler.com/school-of-technology/meta-pytorch-hackathon/dashboard
 - **Round 1:** March 25 – April 5, 2026
-- **Submission Deadline:** April 7, 2026, 11:59 PM IST
+- **Submission Deadline:** April 8, 2026, 11:59 PM IST
 - **Finale (in-person, Bangalore):** April 25–26, 2026
 - **Prize pool:** $30,000 | Top teams get Meta/HuggingFace interviews
 - **Support:** help_openenvhackathon@scaler.com

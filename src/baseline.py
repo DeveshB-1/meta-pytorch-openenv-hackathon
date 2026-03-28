@@ -156,22 +156,28 @@ Rules:
 """
 
 
-def _ask_groq(question_text: str, columns: list[str]) -> str | None:
-    """Ask Groq to write SQL for a question. Returns SQL string or None on failure."""
+def _ask_llm(question_text: str, columns: list[str]) -> str | None:
+    """Ask LLM to write SQL using OpenAI client + API_BASE_URL/MODEL_NAME env vars."""
+    api_key  = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
+    api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+    model    = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+
+    if not api_key:
+        return None
+
     try:
-        from groq import Groq
-        client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=api_base)
 
-        user_msg = f"""Schema:
-{SCHEMA_DDL}
-
-Question: {question_text}
-Expected output columns: {', '.join(columns)}
-
-Write the SQL query:"""
+        user_msg = (
+            f"Schema:\n{SCHEMA_DDL}\n\n"
+            f"Question: {question_text}\n"
+            f"Expected output columns: {', '.join(columns)}\n\n"
+            f"Write the SQL query:"
+        )
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": user_msg},
@@ -181,7 +187,7 @@ Write the SQL query:"""
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"[baseline] Groq error: {e} — falling back to template")
+        print(f"[baseline] LLM error: {e} — falling back to template")
         return None
 
 
@@ -194,15 +200,15 @@ def run_baseline_on_env(env, task_id: str, mode: str = "auto") -> list[dict]:
     Step through all questions in a task using baseline SQL.
 
     mode:
-      "auto"     — use LLM if GROQ_API_KEY set, else template
+      "auto"     — use LLM if OPENAI_API_KEY or API_KEY set, else template
       "template" — always use hardcoded SQL
-      "llm"      — always use Groq (raises if key not set)
+      "llm"      — always use LLM (raises if key not set)
 
     Returns list of step results.
     """
     use_llm = (
         mode == "llm"
-        or (mode == "auto" and os.environ.get("GROQ_API_KEY"))
+        or (mode == "auto" and (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")))
     )
 
     task = ALL_TASKS[task_id]
@@ -212,7 +218,7 @@ def run_baseline_on_env(env, task_id: str, mode: str = "auto") -> list[dict]:
         sql = None
 
         if use_llm:
-            sql = _ask_groq(question.text, question.columns)
+            sql = _ask_llm(question.text, question.columns)
 
         if sql is None:
             sql = BASELINE_QUERIES[question.id]

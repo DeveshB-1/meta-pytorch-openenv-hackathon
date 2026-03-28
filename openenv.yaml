@@ -5,7 +5,7 @@ description: >
   to answer natural-language analytics questions about Tempo, a music
   streaming platform. The SQLite database covers artists, songs, users,
   streams (with skip/completion/source data), and playlists across
-  25 artists, 75 songs, 50 users, 419 streams, 35 playlists.
+  30 artists, 110 songs, 75 users, 650 streams, 50 playlists.
 author: "Devesh B"
 
 environment:

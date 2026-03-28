@@ -144,7 +144,7 @@ def baseline():
     env.reset("task_easy")
 
     return {
-        "mode":   "llm" if os.environ.get("GROQ_API_KEY") else "template",
+        "mode":   "llm" if (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")) else "template",
         "scores": scores,
     }
 
