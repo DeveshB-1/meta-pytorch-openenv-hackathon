@@ -2,9 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install deps first (cached layer if requirements.txt unchanged)
+# Install uv for fast dependency resolution
+RUN pip install --no-cache-dir uv
+
+# Install deps with uv (10-100x faster than pip)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy only source code
 COPY src/ ./src/
