@@ -22,6 +22,11 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN = os.getenv("HF_TOKEN")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
 from src.environment.env import SQLQueryEnv
 from src.tasks import ALL_TASKS, SCHEMA_DDL
 from src.graders.task_easy_grader import grader as easy_grader
@@ -47,16 +52,14 @@ Rules:
 
 def ask_llm(question_text: str, columns: list) -> str | None:
     """Ask LLM to write SQL using OpenAI client + API_BASE_URL/MODEL_NAME env vars."""
-    api_key  = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
-    api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-    model    = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
 
     if not api_key:
         return None
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=api_base)
+        client = OpenAI(api_key=api_key, base_url=API_BASE_URL)
 
         user_msg = (
             f"Schema:\n{SCHEMA_DDL}\n\n"
@@ -66,7 +69,7 @@ def ask_llm(question_text: str, columns: list) -> str | None:
         )
 
         response = client.chat.completions.create(
-            model=model,
+            model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": user_msg},
@@ -124,31 +127,23 @@ def main():
     )
     mode = "llm" if use_llm else "template"
 
-    print(f"Tempo SQL Analytics — OpenEnv Baseline Inference")
-    print(f"Mode: {mode}")
-    if use_llm:
-        print(f"  API_BASE_URL = {os.environ.get('API_BASE_URL', 'https://api.openai.com/v1')}")
-        print(f"  MODEL_NAME   = {os.environ.get('MODEL_NAME', 'gpt-4o-mini')}")
-    print()
+    print(f"[START] mode={mode} api_base_url={API_BASE_URL} model_name={MODEL_NAME}")
 
     env = SQLQueryEnv()
     all_scores = {}
 
     for task_id in ["task_easy", "task_medium", "task_hard"]:
-        print(f"--- {task_id} ---")
+        print(f"[START] task_id={task_id}")
         episode = run_task(env, task_id, use_llm)
 
         for q in episode["questions"]:
-            print(f"  {q['question_id']}: {q['status']}  (reward={q['reward']})")
+            print(f"[STEP] task_id={task_id} question_id={q['question_id']} status={q['status']} reward={q['reward']}")
 
-        print(f"  Score: {episode['score']:.4f}\n")
+        print(f"[END] task_id={task_id} score={episode['score']:.4f}")
         all_scores[task_id] = episode["score"]
 
     avg = sum(all_scores.values()) / len(all_scores)
-    print("=" * 40)
-    print(f"Average score: {avg:.4f}")
-    print("=" * 40)
-    print(json.dumps({"mode": mode, "scores": all_scores}, indent=2))
+    print(f"[END] mode={mode} avg_score={avg:.4f} scores={json.dumps(all_scores)}")
 
     return all_scores
 
