@@ -22,8 +22,8 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 HF_TOKEN = os.getenv("HF_TOKEN")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
@@ -52,7 +52,7 @@ Rules:
 
 def ask_llm(question_text: str, columns: list) -> str | None:
     """Ask LLM to write SQL using OpenAI client + API_BASE_URL/MODEL_NAME env vars."""
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
 
     if not api_key:
         return None
@@ -123,7 +123,7 @@ def run_task(env: SQLQueryEnv, task_id: str, use_llm: bool) -> dict:
 
 def main():
     use_llm = bool(
-        os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
+        os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
     )
     mode = "llm" if use_llm else "template"
 

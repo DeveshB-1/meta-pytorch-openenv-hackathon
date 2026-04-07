@@ -158,9 +158,9 @@ Rules:
 
 def _ask_llm(question_text: str, columns: list[str]) -> str | None:
     """Ask LLM to write SQL using OpenAI client + API_BASE_URL/MODEL_NAME env vars."""
-    api_key  = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
-    api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-    model    = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    api_key  = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
+    api_base = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
+    model    = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
 
     if not api_key:
         return None
@@ -208,7 +208,7 @@ def run_baseline_on_env(env, task_id: str, mode: str = "auto") -> list[dict]:
     """
     use_llm = (
         mode == "llm"
-        or (mode == "auto" and (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")))
+        or (mode == "auto" and (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")))
     )
 
     task = ALL_TASKS[task_id]
