@@ -141,4 +141,6 @@ class BaseGrader:
 
             total_score += best
 
-        return round(total_score / len(self.task.questions), 4)
+        raw = round(total_score / len(self.task.questions), 4)
+        # Validator requires strictly (0, 1) — clamp away from boundaries
+        return max(0.0001, min(0.9999, raw))
