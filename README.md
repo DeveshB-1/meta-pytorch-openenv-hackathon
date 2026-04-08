@@ -50,10 +50,10 @@ Each episode presents **5 natural-language analytics questions** at a chosen dif
 
 | Outcome | Reward |
 |---------|--------|
-| Correct answer (exact match) | `+1.0` |
-| Non-empty result (partial progress) | `+0.05` |
-| SQL error | `-0.01` |
-| Hint action | `0.0` |
+| Correct answer (exact match) | `+0.95` |
+| Non-empty result (partial progress) | `+0.10` |
+| SQL error | `+0.05` |
+| Hint action | `+0.05` |
 
 ---
 
@@ -65,7 +65,7 @@ Each episode presents **5 natural-language analytics questions** at a chosen dif
 | `task_medium` | Medium | JOINs, multi-table aggregations | "What are the top 10 most streamed songs?" |
 | `task_hard` | Hard | Window functions, CTEs, subqueries | "Rank songs by stream count within their genre" |
 
-Scoring: average of best-attempt-per-question across all 5 questions in the task.
+Scoring: average of best-attempt-per-question across all 5 questions. Scores are strictly in (0, 1) — partial credit is always awarded.
 
 ---
 
@@ -135,22 +135,30 @@ curl -X POST https://dev176-openenv-sql-query-env.hf.space/mcp \
 
 ## Baseline & Inference
 
-`inference.py` runs all 3 tasks using the OpenAI client. Set `API_BASE_URL` + `MODEL_NAME` + `OPENAI_API_KEY` for LLM mode; falls back to template SQL (scores 1.0) if no key is set.
+`inference.py` runs all 3 tasks using the OpenAI-compatible client. Set `API_BASE_URL` + `MODEL_NAME` + `HF_TOKEN` for LLM mode; falls back to template SQL if no key is set. Outputs structured `[START]`/`[STEP]`/`[END]` logs.
 
 ```bash
-# Template mode (always 1.0)
+# Template mode
 python inference.py
 
-# LLM mode
+# LLM mode (Groq)
 API_BASE_URL=https://api.groq.com/openai/v1 \
 MODEL_NAME=llama-3.3-70b-versatile \
-OPENAI_API_KEY=your_key \
+HF_TOKEN=your_key \
 python inference.py
+```
+
+Example output:
+```
+[START] task=task_easy env=tempo-sql-analytics-env model=llama-3.3-70b-versatile
+[STEP] step=1 action={"action_type":"query",...} reward=0.95 done=false error=null
+...
+[END] success=true steps=5 score=0.950 rewards=0.95,0.95,0.95,0.95,0.95
 ```
 
 ```bash
 curl https://dev176-openenv-sql-query-env.hf.space/baseline
-# {"mode": "template", "scores": {"task_easy": 1.0, "task_medium": 1.0, "task_hard": 1.0}}
+# {"mode": "template", "scores": {"task_easy": 0.95, "task_medium": 0.95, "task_hard": 0.95}}
 ```
 
 ---
@@ -184,7 +192,7 @@ result = httpx.post(f"{BASE}/step", json={
         "question_id": "hard_q3"
     }
 }).json()
-print(result["reward"])  # 1.0
+print(result["reward"])  # 0.95
 
 # Get episode score
 score = httpx.get(f"{BASE}/grader", params={"task_id": "task_hard"}).json()
