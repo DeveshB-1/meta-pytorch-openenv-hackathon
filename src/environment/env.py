@@ -100,7 +100,7 @@ class SQLQueryEnv(HackathonEnv):
         if self.current_task is None:
             return StepResult(
                 observation={"error": "Environment not reset. Call /reset first."},
-                reward=0.0, done=True, info={}
+                reward=0.05, done=True, info={}
             )
 
         self.step_count += 1
@@ -110,7 +110,7 @@ class SQLQueryEnv(HackathonEnv):
 
         if action_type == "hint":
             obs = self._handle_hint(payload)
-            return StepResult(observation=obs, reward=0.0, done=done, info={"action_type": "hint"})
+            return StepResult(observation=obs, reward=0.05, done=done, info={"action_type": "hint"})
 
         # Default: query
         sql = payload.get("sql", "")
@@ -118,18 +118,18 @@ class SQLQueryEnv(HackathonEnv):
         rows, error = self._execute_sql(sql)
 
         # Intermediate reward
-        reward = 0.0
+        reward = 0.05
         if error:
-            reward = -0.01
+            reward = 0.05
         elif rows:
-            reward = 0.05  # non-empty result — making progress
+            reward = 0.1  # non-empty result — making progress
 
         # Check if this is a correct answer
         question = next((q for q in self.current_task.questions if q.id == question_id), None)
         if question and not error:
             matched, reason = rows_match(rows, question.expected_rows, question.order_sensitive)
             if matched:
-                reward = 1.0
+                reward = 0.95
 
         # Record in history (grader reads this later)
         self.query_history.append({

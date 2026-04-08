@@ -108,7 +108,7 @@ def run_task(env: SQLQueryEnv, task_id: str, use_llm: bool) -> dict:
 
         reward = step_result.reward
         error  = step_result.observation.get("error")
-        status = "CORRECT" if reward == 1.0 else ("ERROR" if error else "WRONG")
+        status = "CORRECT" if reward >= 0.9 else ("ERROR" if error else "WRONG")
 
         results.append({
             "question_id": question.id,

@@ -9,11 +9,11 @@ from src.tasks import TaskDef
 # ---------------------------------------------------------------------------
 
 SCORE_MAP = {
-    "exact":                       1.0,
-    "correct_columns_wrong_values": 0.3,
-    "wrong_structure":              0.0,
-    "sql_error":                    0.0,
-    "no_attempt":                   0.0,
+    "exact":                       0.95,
+    "correct_columns_wrong_values": 0.4,
+    "wrong_structure":              0.05,
+    "sql_error":                    0.05,
+    "no_attempt":                   0.05,
 }
 
 
