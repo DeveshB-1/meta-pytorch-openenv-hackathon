@@ -10,7 +10,7 @@ Usage:
 Required env vars (optional — falls back to template if not set):
     API_BASE_URL   — LLM API endpoint (e.g. https://api.groq.com/openai/v1)
     MODEL_NAME     — Model identifier  (e.g. llama-3.3-70b-versatile)
-    OPENAI_API_KEY — API key for the LLM provider
+    HF_TOKEN       — API key for the LLM provider
 
 Runtime: < 2 minutes (template mode) or < 5 minutes (LLM mode)
 Hardware: runs comfortably on 2 vCPU / 8 GB RAM
@@ -26,6 +26,9 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 HF_TOKEN = os.getenv("HF_TOKEN")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
+BENCHMARK_NAME = os.getenv("BENCHMARK_NAME", "tempo-sql-analytics-env")
+SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.5"))
 
 from src.environment.env import SQLQueryEnv
 from src.tasks import ALL_TASKS, SCHEMA_DDL
@@ -52,7 +55,7 @@ Rules:
 
 def ask_llm(question_text: str, columns: list) -> str | None:
     """Ask LLM to write SQL using OpenAI client + API_BASE_URL/MODEL_NAME env vars."""
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
+    api_key = HF_TOKEN or os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
 
     if not api_key:
         return None
@@ -79,72 +82,57 @@ def ask_llm(question_text: str, columns: list) -> str | None:
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"[inference] LLM error: {e} — falling back to template")
+        print(f"# LLM error: {e} — falling back to template", file=sys.stderr)
         return None
 
 
-def run_task(env: SQLQueryEnv, task_id: str, use_llm: bool) -> dict:
-    """Run one full episode and return score + per-question breakdown."""
-    env.reset(task_id)
-    task = ALL_TASKS[task_id]
-
-    results = []
-    for question in task.questions:
-        sql = None
-
-        if use_llm:
-            sql = ask_llm(question.text, question.columns)
-
-        if sql is None:
-            sql = BASELINE_QUERIES[question.id]
-
-        step_result = env.step({
-            "action_type": "query",
-            "payload": {
-                "sql":         sql,
-                "question_id": question.id,
-            },
-        })
-
-        reward = step_result.reward
-        error  = step_result.observation.get("error")
-        status = "CORRECT" if reward >= 0.9 else ("ERROR" if error else "WRONG")
-
-        results.append({
-            "question_id": question.id,
-            "status":      status,
-            "reward":      reward,
-            "error":       error,
-        })
-
-    score = GRADERS[task_id].grade(env.get_query_history())
-    return {"task_id": task_id, "score": score, "questions": results}
-
-
 def main():
-    use_llm = bool(
-        os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY")
-    )
-    mode = "llm" if use_llm else "template"
-
-    print(f"[START] mode={mode} api_base_url={API_BASE_URL} model_name={MODEL_NAME}")
+    use_llm = bool(HF_TOKEN or os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY") or os.environ.get("GROQ_API_KEY"))
 
     env = SQLQueryEnv()
     all_scores = {}
 
     for task_id in ["task_easy", "task_medium", "task_hard"]:
-        print(f"[START] task_id={task_id}")
-        episode = run_task(env, task_id, use_llm)
+        # [START] line — exact required format
+        print(f"[START] task={task_id} env={BENCHMARK_NAME} model={MODEL_NAME}")
 
-        for q in episode["questions"]:
-            r = max(0.0001, min(0.9999, q['reward']))
-            print(f"[STEP] task_id={task_id} question_id={q['question_id']} status={q['status']} reward={r}")
+        env.reset(task_id)
+        task = ALL_TASKS[task_id]
+        step_rewards = []
+        n_questions = len(task.questions)
 
-        print(f"[END] task_id={task_id} score={episode['score']:.4f}")
-        all_scores[task_id] = episode["score"]
+        for i, question in enumerate(task.questions):
+            sql = None
+            if use_llm:
+                sql = ask_llm(question.text, question.columns)
+            if sql is None:
+                sql = BASELINE_QUERIES[question.id]
 
-    avg = sum(all_scores.values()) / len(all_scores)
-    print(f"[END] mode={mode} avg_score={avg:.4f} scores={json.dumps(all_scores)}")
+            action = {
+                "action_type": "query",
+                "payload": {"sql": sql, "question_id": question.id},
+            }
+            step_result = env.step(action)
+
+            reward = step_result.reward
+            error  = step_result.observation.get("error")
+            done   = (i == n_questions - 1)
+
+            action_str = json.dumps(action, separators=(",", ":"))
+            error_str  = "null" if not error else str(error)
+            done_str   = "true" if done else "false"
+
+            # [STEP] line — exact required format
+            print(f"[STEP] step={i+1} action={action_str} reward={reward:.2f} done={done_str} error={error_str}")
+            step_rewards.append(reward)
+
+        score   = GRADERS[task_id].grade(env.get_query_history())
+        success = score >= SUCCESS_SCORE_THRESHOLD
+        rewards_str = ",".join(f"{r:.2f}" for r in step_rewards)
+
+        # [END] line — exact required format
+        print(f"[END] success={'true' if success else 'false'} steps={n_questions} score={score:.3f} rewards={rewards_str}")
+        all_scores[task_id] = score
 
     return all_scores
 
