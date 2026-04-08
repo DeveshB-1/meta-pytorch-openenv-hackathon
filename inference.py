@@ -137,7 +137,8 @@ def main():
         episode = run_task(env, task_id, use_llm)
 
         for q in episode["questions"]:
-            print(f"[STEP] task_id={task_id} question_id={q['question_id']} status={q['status']} reward={q['reward']}")
+            r = max(0.0001, min(0.9999, q['reward']))
+            print(f"[STEP] task_id={task_id} question_id={q['question_id']} status={q['status']} reward={r}")
 
         print(f"[END] task_id={task_id} score={episode['score']:.4f}")
         all_scores[task_id] = episode["score"]
