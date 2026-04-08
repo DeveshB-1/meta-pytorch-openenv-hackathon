@@ -115,15 +115,10 @@ def grader(task_id: str = "task_easy"):
         raise HTTPException(status_code=400, detail=f"Unknown task_id '{task_id}'")
 
     current_task = env.get_task()
-    if current_task is None:
-        raise HTTPException(status_code=400, detail="Environment not reset. Call /reset first.")
 
-    if current_task.id != task_id:
-        return {
-            "task_id": task_id,
-            "score":   0.0,
-            "warning": f"Environment is on task '{current_task.id}', not '{task_id}'. Call /reset with the correct task_id.",
-        }
+    # Auto-reset to requested task if needed (ensures score is always available)
+    if current_task is None or current_task.id != task_id:
+        env.reset(task_id)
 
     score = GRADERS[task_id].grade(env.get_query_history())
     return {"task_id": task_id, "score": score}
