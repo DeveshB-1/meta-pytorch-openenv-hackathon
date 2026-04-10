@@ -79,17 +79,18 @@ The grader uses **partial row credit** — if an agent gets the right schema and
 
 Template baseline = hardcoded correct SQL. Theoretical max = 0.9499 (all 5 questions exact). Partial credit kicks in below that.
 
-| Task | Template baseline | Theoretical max | What makes it hard |
-|------|:-----------------:|:---------------:|---------------------|
-| `task_easy` | 0.95 | 0.95 | — straightforward single-table |
-| `task_medium` | 0.84 | 0.95 | JOIN + correct alias ordering |
-| `task_hard` | 0.77 | 0.95 | Window functions, RANK(), CTEs |
-| `task_analytics` | 0.84 | 0.95 | Revenue proxy formula, HAVING filter |
-| `task_realtime` | 0.84 | 0.95 | Date slicing, MoM COALESCE |
-| `task_expert` | 0.63 | 0.95 | All 6 tables, LEFT JOIN attribution |
-| `task_iterative` | 0.81 | 0.95 | LEFT JOIN IS NULL traps, RANK() OVER |
+| Task | Template baseline | LLM (Llama 3.3 70B) | Theoretical max | What makes it hard |
+|------|:-----------------:|:-------------------:|:---------------:|---------------------|
+| `task_easy` | 0.95 | **0.95** | 0.95 | — straightforward single-table |
+| `task_medium` | 0.84 | **0.95** | 0.95 | JOIN + correct alias ordering |
+| `task_hard` | 0.77 | **0.77** | 0.95 | Window functions, RANK(), CTEs |
+| `task_analytics` | 0.84 | **0.84** | 0.95 | Revenue proxy formula, HAVING filter |
+| `task_realtime` | 0.84 | **0.84** | 0.95 | Date slicing, MoM COALESCE |
+| `task_expert` | 0.63 | **0.81** | 0.95 | All 6 tables, LEFT JOIN attribution |
+| `task_iterative` | 0.81 | **0.66** | 0.95 | LEFT JOIN IS NULL traps, RANK() OVER |
+| **Average** | **0.81** | **0.83** | **0.95** | |
 
-> Template scores below 0.95 mean the reference queries produce equivalent-but-not-byte-identical output (e.g. floating-point rounding differences across SQLite builds) — the partial credit grader captures these correctly. Run `python inference.py` with `HF_TOKEN` set to measure LLM performance.
+LLM scores measured live with Groq `llama-3.3-70b-versatile` via the `/baseline` endpoint. The iterative task (LEFT JOIN edge cases) is the hardest for LLMs — dropping from 0.81 template to 0.66 LLM shows genuine reasoning difficulty. Track live results at `/leaderboard`.
 
 ---
 
