@@ -14,11 +14,20 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Push to HuggingFace Spaces
+      - name: Push to HuggingFace Spaces (with retry)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git config --global user.email "deploy@github-actions.com"
           git config --global user.name "GitHub Actions"
           git remote add hf https://Dev176:$HF_TOKEN@huggingface.co/spaces/Dev176/openenv-sql-query-env
-          git push hf main --force
+
+          for i in 1 2 3 4 5; do
+            echo "Push attempt $i..."
+            git push hf main --force && echo "Push succeeded" && exit 0
+            echo "Attempt $i failed, waiting 15s..."
+            sleep 15
+          done
+
+          echo "All 5 push attempts failed"
+          exit 1
