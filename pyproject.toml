@@ -24,3 +24,8 @@ server = "server.app:main"
 entry_point = "src/environment/env.py"
 class = "SQLQueryEnv"
 config = "openenv.yaml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

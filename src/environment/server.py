@@ -19,6 +19,8 @@ from src.tasks import ALL_TASKS
 from src.graders.task_easy_grader import grader as easy_grader
 from src.graders.task_medium_grader import grader as medium_grader
 from src.graders.task_hard_grader import grader as hard_grader
+from src.graders.task_analytics_grader import grader as analytics_grader
+from src.graders.task_realtime_grader import grader as realtime_grader
 from src.baseline import run_baseline_on_env
 
 # ---------------------------------------------------------------------------
@@ -30,9 +32,11 @@ app = FastAPI(title="OpenEnv SQL Query Environment", version="1.0.0")
 env = SQLQueryEnv()
 
 GRADERS = {
-    "task_easy":   easy_grader,
-    "task_medium": medium_grader,
-    "task_hard":   hard_grader,
+    "task_easy":      easy_grader,
+    "task_medium":    medium_grader,
+    "task_hard":      hard_grader,
+    "task_analytics": analytics_grader,
+    "task_realtime":  realtime_grader,
 }
 
 # ---------------------------------------------------------------------------

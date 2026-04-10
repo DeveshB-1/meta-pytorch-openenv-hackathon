@@ -1413,6 +1413,130 @@ _hard_q5_rows = _rows(_ref, """
     ORDER BY song_count DESC, p.name ASC
 """)
 
+# --- ANALYTICS ---
+
+_analytics_q1_rows = _rows(_ref, """
+SELECT s.genre,
+       SUM(CASE WHEN u.subscription_tier = 'premium' THEN 2 ELSE 1 END) AS revenue_proxy,
+       COUNT(st.id) AS total_streams,
+       ROUND(100.0 * SUM(CASE WHEN u.subscription_tier = 'premium' THEN 1 ELSE 0 END) / COUNT(st.id), 2) AS premium_stream_pct
+FROM streams st
+JOIN songs s ON st.song_id = s.id
+JOIN users u ON st.user_id = u.id
+GROUP BY s.genre
+ORDER BY revenue_proxy DESC, s.genre ASC
+""")
+
+_analytics_q2_rows = _rows(_ref, """
+SELECT a.name AS artist_name,
+       COUNT(st.id) AS total_streams,
+       SUM(st.completed) AS completed_streams,
+       ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS engagement_rate
+FROM artists a
+JOIN songs s ON a.id = s.artist_id
+JOIN streams st ON s.id = st.song_id
+GROUP BY a.id, a.name
+HAVING COUNT(st.id) >= 5
+ORDER BY engagement_rate DESC, a.name ASC
+""")
+
+_analytics_q3_rows = _rows(_ref, """
+SELECT s.genre, u.subscription_tier, COUNT(st.id) AS stream_count
+FROM streams st
+JOIN songs s ON st.song_id = s.id
+JOIN users u ON st.user_id = u.id
+GROUP BY s.genre, u.subscription_tier
+ORDER BY s.genre ASC, u.subscription_tier ASC
+""")
+
+_analytics_q4_rows = _rows(_ref, """
+SELECT a.name AS artist_name,
+       COUNT(st.id) AS total_streams,
+       COUNT(DISTINCT st.user_id) AS unique_listeners,
+       ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+FROM artists a
+JOIN songs s ON a.id = s.artist_id
+JOIN streams st ON s.id = st.song_id
+GROUP BY a.id, a.name
+ORDER BY total_streams DESC, a.name ASC
+LIMIT 10
+""")
+
+_analytics_q5_rows = _rows(_ref, """
+WITH y2024 AS (
+    SELECT user_id, COUNT(*) AS streams_2024 FROM streams
+    WHERE played_at >= '2024-01-01' AND played_at < '2025-01-01'
+    GROUP BY user_id
+),
+y2025 AS (
+    SELECT user_id, COUNT(*) AS streams_2025 FROM streams
+    WHERE played_at >= '2025-01-01' AND played_at < '2026-01-01'
+    GROUP BY user_id
+)
+SELECT u.username, u.subscription_tier, y24.streams_2024, y25.streams_2025
+FROM users u
+JOIN y2024 y24 ON u.id = y24.user_id
+JOIN y2025 y25 ON u.id = y25.user_id
+ORDER BY y24.streams_2024 + y25.streams_2025 DESC, u.username ASC
+""")
+
+# --- REALTIME ---
+
+_realtime_q1_rows = _rows(_ref, """
+SELECT SUBSTR(played_at, 1, 7) AS year_month, COUNT(*) AS stream_count
+FROM streams
+GROUP BY year_month
+ORDER BY year_month ASC
+""")
+
+_realtime_q2_rows = _rows(_ref, """
+SELECT s.title, a.name AS artist_name, COUNT(st.id) AS streams_2025
+FROM songs s
+JOIN artists a ON s.artist_id = a.id
+LEFT JOIN streams st ON s.id = st.song_id AND SUBSTR(st.played_at, 1, 4) = '2025'
+WHERE s.release_year = 2025
+GROUP BY s.id, s.title, a.name
+ORDER BY streams_2025 DESC, s.title ASC
+""")
+
+_realtime_q3_rows = _rows(_ref, """
+SELECT s.title, a.name AS artist_name, COUNT(st.id) AS recommendation_streams
+FROM streams st
+JOIN songs s ON st.song_id = s.id
+JOIN artists a ON s.artist_id = a.id
+WHERE st.source = 'recommendation' AND SUBSTR(st.played_at, 1, 4) = '2024'
+GROUP BY s.id, s.title, a.name
+ORDER BY recommendation_streams DESC, s.title ASC
+LIMIT 10
+""")
+
+_realtime_q4_rows = _rows(_ref, """
+WITH jan AS (
+    SELECT s.genre, COUNT(*) AS jan_streams FROM streams st
+    JOIN songs s ON st.song_id = s.id
+    WHERE SUBSTR(st.played_at, 1, 7) = '2024-01' GROUP BY s.genre
+),
+feb AS (
+    SELECT s.genre, COUNT(*) AS feb_streams FROM streams st
+    JOIN songs s ON st.song_id = s.id
+    WHERE SUBSTR(st.played_at, 1, 7) = '2024-02' GROUP BY s.genre
+)
+SELECT j.genre, j.jan_streams, COALESCE(f.feb_streams, 0) AS feb_streams,
+       ROUND(100.0 * (COALESCE(f.feb_streams, 0) - j.jan_streams) / j.jan_streams, 2) AS mom_growth_pct
+FROM jan j LEFT JOIN feb f ON j.genre = f.genre
+ORDER BY mom_growth_pct DESC, j.genre ASC
+""")
+
+_realtime_q5_rows = _rows(_ref, """
+SELECT SUBSTR(played_at, 1, 7) AS year_month,
+       COUNT(*) AS total_streams,
+       SUM(CASE WHEN skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skipped_streams,
+       ROUND(100.0 * SUM(CASE WHEN skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*), 2) AS skip_rate_pct
+FROM streams
+GROUP BY year_month
+ORDER BY year_month ASC
+""")
+
 # ---------------------------------------------------------------------------
 # Build Task objects
 # ---------------------------------------------------------------------------
@@ -1489,10 +1613,60 @@ TASK_HARD = TaskDef(
     ],
 )
 
+TASK_ANALYTICS = TaskDef(
+    id="task_analytics",
+    name="Analytics — Tempo Revenue and Engagement Metrics",
+    difficulty="analytics",
+    description="Compute revenue proxies, engagement rates, and cross-dimension breakdowns across genres, artists, and user tiers.",
+    questions=[
+        Question("analytics_q1",
+                 "What is the revenue proxy for each genre? Premium streams count as 2, free streams as 1. Return genre, revenue_proxy, total_streams, premium_stream_pct (ROUND 2 decimals), ordered by revenue_proxy DESC, genre ASC.",
+                 _analytics_q1_rows, True, ["genre", "revenue_proxy", "total_streams", "premium_stream_pct"]),
+        Question("analytics_q2",
+                 "For artists with at least 5 streams, compute their engagement rate. Return artist_name, total_streams, completed_streams, engagement_rate (ROUND 2 decimals, 0-100), ordered by engagement_rate DESC, artist_name ASC.",
+                 _analytics_q2_rows, True, ["artist_name", "total_streams", "completed_streams", "engagement_rate"]),
+        Question("analytics_q3",
+                 "How many streams does each genre receive from free vs premium users? Return genre, subscription_tier, stream_count ordered by genre ASC, subscription_tier ASC.",
+                 _analytics_q3_rows, True, ["genre", "subscription_tier", "stream_count"]),
+        Question("analytics_q4",
+                 "Top 10 artists by stream volume with unique listeners and completion rate. Return artist_name, total_streams, unique_listeners, completion_rate (ROUND 2 decimals), ordered by total_streams DESC, artist_name ASC.",
+                 _analytics_q4_rows, True, ["artist_name", "total_streams", "unique_listeners", "completion_rate"]),
+        Question("analytics_q5",
+                 "Users who streamed in both 2024 and 2025 (retained users). Return username, subscription_tier, streams_2024, streams_2025 ordered by (streams_2024+streams_2025) DESC, username ASC.",
+                 _analytics_q5_rows, True, ["username", "subscription_tier", "streams_2024", "streams_2025"]),
+    ],
+)
+
+TASK_REALTIME = TaskDef(
+    id="task_realtime",
+    name="Realtime — Tempo Time-Series and Trend Analytics",
+    difficulty="realtime",
+    description="Analyse monthly trends, new releases, recommendation performance, and skip-rate patterns over time.",
+    questions=[
+        Question("realtime_q1",
+                 "Stream count per month. Return year_month (SUBSTR played_at 1-7), stream_count ordered by year_month ASC.",
+                 _realtime_q1_rows, True, ["year_month", "stream_count"]),
+        Question("realtime_q2",
+                 "Songs released in 2025 ranked by their 2025 stream count. Return title, artist_name, streams_2025 ordered by streams_2025 DESC, title ASC.",
+                 _realtime_q2_rows, True, ["title", "artist_name", "streams_2025"]),
+        Question("realtime_q3",
+                 "Top 10 songs discovered via recommendation in 2024. Return title, artist_name, recommendation_streams ordered by recommendation_streams DESC, title ASC.",
+                 _realtime_q3_rows, True, ["title", "artist_name", "recommendation_streams"]),
+        Question("realtime_q4",
+                 "Genre MoM growth Jan→Feb 2024. Return genre, jan_streams, feb_streams, mom_growth_pct (ROUND 2) ordered by mom_growth_pct DESC, genre ASC.",
+                 _realtime_q4_rows, True, ["genre", "jan_streams", "feb_streams", "mom_growth_pct"]),
+        Question("realtime_q5",
+                 "Monthly skip rate trend. Return year_month, total_streams, skipped_streams, skip_rate_pct (ROUND 2) ordered by year_month ASC.",
+                 _realtime_q5_rows, True, ["year_month", "total_streams", "skipped_streams", "skip_rate_pct"]),
+    ],
+)
+
 ALL_TASKS: dict[str, TaskDef] = {
-    "task_easy":   TASK_EASY,
-    "task_medium": TASK_MEDIUM,
-    "task_hard":   TASK_HARD,
+    "task_easy":      TASK_EASY,
+    "task_medium":    TASK_MEDIUM,
+    "task_hard":      TASK_HARD,
+    "task_analytics": TASK_ANALYTICS,
+    "task_realtime":  TASK_REALTIME,
 }
 
 SCHEMA_DDL = """

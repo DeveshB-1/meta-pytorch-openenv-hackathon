@@ -87,6 +87,120 @@ BASELINE_QUERIES: dict[str, str] = {
         ORDER BY stream_count DESC, s.mood ASC
     """,
 
+    # ANALYTICS
+    "analytics_q1": """
+        SELECT s.genre,
+               SUM(CASE WHEN u.subscription_tier = 'premium' THEN 2 ELSE 1 END) AS revenue_proxy,
+               COUNT(st.id) AS total_streams,
+               ROUND(100.0 * SUM(CASE WHEN u.subscription_tier = 'premium' THEN 1 ELSE 0 END) / COUNT(st.id), 2) AS premium_stream_pct
+        FROM streams st
+        JOIN songs s ON st.song_id = s.id
+        JOIN users u ON st.user_id = u.id
+        GROUP BY s.genre
+        ORDER BY revenue_proxy DESC, s.genre ASC
+    """,
+    "analytics_q2": """
+        SELECT a.name AS artist_name,
+               COUNT(st.id) AS total_streams,
+               SUM(st.completed) AS completed_streams,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS engagement_rate
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        HAVING COUNT(st.id) >= 5
+        ORDER BY engagement_rate DESC, a.name ASC
+    """,
+    "analytics_q3": """
+        SELECT s.genre, u.subscription_tier, COUNT(st.id) AS stream_count
+        FROM streams st
+        JOIN songs s ON st.song_id = s.id
+        JOIN users u ON st.user_id = u.id
+        GROUP BY s.genre, u.subscription_tier
+        ORDER BY s.genre ASC, u.subscription_tier ASC
+    """,
+    "analytics_q4": """
+        SELECT a.name AS artist_name,
+               COUNT(st.id) AS total_streams,
+               COUNT(DISTINCT st.user_id) AS unique_listeners,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        ORDER BY total_streams DESC, a.name ASC
+        LIMIT 10
+    """,
+    "analytics_q5": """
+        WITH y2024 AS (
+            SELECT user_id, COUNT(*) AS streams_2024 FROM streams
+            WHERE played_at >= '2024-01-01' AND played_at < '2025-01-01'
+            GROUP BY user_id
+        ),
+        y2025 AS (
+            SELECT user_id, COUNT(*) AS streams_2025 FROM streams
+            WHERE played_at >= '2025-01-01' AND played_at < '2026-01-01'
+            GROUP BY user_id
+        )
+        SELECT u.username, u.subscription_tier, y24.streams_2024, y25.streams_2025
+        FROM users u
+        JOIN y2024 y24 ON u.id = y24.user_id
+        JOIN y2025 y25 ON u.id = y25.user_id
+        ORDER BY y24.streams_2024 + y25.streams_2025 DESC, u.username ASC
+    """,
+
+    # REALTIME
+    "realtime_q1": """
+        SELECT SUBSTR(played_at, 1, 7) AS year_month, COUNT(*) AS stream_count
+        FROM streams
+        GROUP BY year_month
+        ORDER BY year_month ASC
+    """,
+    "realtime_q2": """
+        SELECT s.title, a.name AS artist_name, COUNT(st.id) AS streams_2025
+        FROM songs s
+        JOIN artists a ON s.artist_id = a.id
+        LEFT JOIN streams st ON s.id = st.song_id AND SUBSTR(st.played_at, 1, 4) = '2025'
+        WHERE s.release_year = 2025
+        GROUP BY s.id, s.title, a.name
+        ORDER BY streams_2025 DESC, s.title ASC
+    """,
+    "realtime_q3": """
+        SELECT s.title, a.name AS artist_name, COUNT(st.id) AS recommendation_streams
+        FROM streams st
+        JOIN songs s ON st.song_id = s.id
+        JOIN artists a ON s.artist_id = a.id
+        WHERE st.source = 'recommendation' AND SUBSTR(st.played_at, 1, 4) = '2024'
+        GROUP BY s.id, s.title, a.name
+        ORDER BY recommendation_streams DESC, s.title ASC
+        LIMIT 10
+    """,
+    "realtime_q4": """
+        WITH jan AS (
+            SELECT s.genre, COUNT(*) AS jan_streams FROM streams st
+            JOIN songs s ON st.song_id = s.id
+            WHERE SUBSTR(st.played_at, 1, 7) = '2024-01' GROUP BY s.genre
+        ),
+        feb AS (
+            SELECT s.genre, COUNT(*) AS feb_streams FROM streams st
+            JOIN songs s ON st.song_id = s.id
+            WHERE SUBSTR(st.played_at, 1, 7) = '2024-02' GROUP BY s.genre
+        )
+        SELECT j.genre, j.jan_streams, COALESCE(f.feb_streams, 0) AS feb_streams,
+               ROUND(100.0 * (COALESCE(f.feb_streams, 0) - j.jan_streams) / j.jan_streams, 2) AS mom_growth_pct
+        FROM jan j LEFT JOIN feb f ON j.genre = f.genre
+        ORDER BY mom_growth_pct DESC, j.genre ASC
+    """,
+    "realtime_q5": """
+        SELECT SUBSTR(played_at, 1, 7) AS year_month,
+               COUNT(*) AS total_streams,
+               SUM(CASE WHEN skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skipped_streams,
+               ROUND(100.0 * SUM(CASE WHEN skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*), 2) AS skip_rate_pct
+        FROM streams
+        GROUP BY year_month
+        ORDER BY year_month ASC
+    """,
+
     # HARD
     "hard_q1": """
         SELECT s.title, COUNT(st.id) AS stream_count,

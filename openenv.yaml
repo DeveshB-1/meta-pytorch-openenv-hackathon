@@ -32,6 +32,18 @@ tasks:
     description: "Use window functions, CTEs, and subqueries to uncover viral hits, skip patterns, and listener behaviour."
     grader: src/graders/task_hard_grader.py
 
+  - id: task_analytics
+    name: "Analytics — Tempo Revenue and Engagement Metrics"
+    difficulty: analytics
+    description: "Compute revenue proxies, engagement rates, and cross-dimension breakdowns across genres, artists, and user tiers."
+    grader: src/graders/task_analytics_grader.py
+
+  - id: task_realtime
+    name: "Realtime — Tempo Time-Series and Trend Analytics"
+    difficulty: realtime
+    description: "Analyse monthly trends, new releases, recommendation performance, and skip-rate patterns over time."
+    grader: src/graders/task_realtime_grader.py
+
 api:
   host: 0.0.0.0
   port: 7860
