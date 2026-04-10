@@ -73,15 +73,16 @@ class SQLQueryEnv(HackathonEnv):
         self.query_history = []
 
         return {
-            "task_id":   self.current_task.id,
-            "task_name": self.current_task.name,
-            "schema":    SCHEMA_DDL,
+            "task_id":         self.current_task.id,
+            "task_name":       self.current_task.name,
+            "schema":          SCHEMA_DDL,
             "questions": [
                 {"id": q.id, "text": q.text, "columns": q.columns}
                 for q in self.current_task.questions
             ],
-            "step":      self.step_count,
-            "max_steps": MAX_STEPS,
+            "step":            self.step_count,
+            "steps_remaining": MAX_STEPS,
+            "max_steps":       MAX_STEPS,
         }
 
     # ------------------------------------------------------------------
@@ -144,13 +145,19 @@ class SQLQueryEnv(HackathonEnv):
             "error":       error,
         })
 
+        q_index = next(
+            (i for i, q in enumerate(self.current_task.questions) if q.id == question_id),
+            None,
+        )
         obs = {
-            "task_id":     self.current_task.id,
-            "question_id": question_id,
-            "rows":        rows,
-            "error":       error,
-            "step":        self.step_count,
-            "max_steps":   MAX_STEPS,
+            "task_id":         self.current_task.id,
+            "question_id":     question_id,
+            "question_index":  q_index,
+            "rows":            rows,
+            "error":           error,
+            "step":            self.step_count,
+            "steps_remaining": MAX_STEPS - self.step_count,
+            "max_steps":       MAX_STEPS,
         }
         return StepResult(observation=obs, reward=reward, done=done, info={})
 

@@ -27,7 +27,7 @@ from src.graders import _partial_overlap, BaseGrader
 EXPECTED_TASKS = [
     "task_easy", "task_medium", "task_hard",
     "task_analytics", "task_realtime",
-    "task_expert", "task_iterative",
+    "task_expert", "task_iterative", "task_adversarial",
 ]
 
 
@@ -53,9 +53,9 @@ def test_all_question_ids_unique():
 # Baseline queries coverage
 # ---------------------------------------------------------------------------
 
-def test_baseline_queries_cover_all_35_questions():
+def test_baseline_queries_cover_all_40_questions():
     all_question_ids = [q.id for task in ALL_TASKS.values() for q in task.questions]
-    assert len(all_question_ids) == 35, f"Expected 35 questions, got {len(all_question_ids)}"
+    assert len(all_question_ids) == 40, f"Expected 40 questions, got {len(all_question_ids)}"
     for qid in all_question_ids:
         assert qid in BASELINE_QUERIES, f"BASELINE_QUERIES missing key: {qid}"
 
@@ -104,6 +104,23 @@ def test_env_step_correct_sql_reward(env, task_id):
 # ---------------------------------------------------------------------------
 # explain action
 # ---------------------------------------------------------------------------
+
+def test_reset_observation_has_steps_remaining(env):
+    obs = env.reset("task_easy")
+    assert "steps_remaining" in obs, "reset obs missing steps_remaining"
+    assert obs["steps_remaining"] == 10
+
+
+def test_step_observation_has_richer_fields(env):
+    env.reset("task_easy")
+    result = env.step({
+        "action_type": "query",
+        "payload": {"sql": "SELECT 1 AS x", "question_id": "easy_q1"},
+    })
+    obs = result.observation
+    assert "steps_remaining" in obs
+    assert "question_index" in obs
+
 
 def test_explain_action_returns_plan(env):
     env.reset("task_easy")

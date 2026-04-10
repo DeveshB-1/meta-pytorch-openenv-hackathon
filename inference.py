@@ -39,16 +39,18 @@ from src.graders.task_analytics_grader import grader as analytics_grader
 from src.graders.task_realtime_grader import grader as realtime_grader
 from src.graders.task_expert_grader import grader as expert_grader
 from src.graders.task_iterative_grader import grader as iterative_grader
+from src.graders.task_adversarial_grader import grader as adversarial_grader
 from src.baseline import BASELINE_QUERIES
 
 GRADERS = {
-    "task_easy":      easy_grader,
-    "task_medium":    medium_grader,
-    "task_hard":      hard_grader,
-    "task_analytics": analytics_grader,
-    "task_realtime":  realtime_grader,
-    "task_expert":    expert_grader,
-    "task_iterative": iterative_grader,
+    "task_easy":         easy_grader,
+    "task_medium":       medium_grader,
+    "task_hard":         hard_grader,
+    "task_analytics":    analytics_grader,
+    "task_realtime":     realtime_grader,
+    "task_expert":       expert_grader,
+    "task_iterative":    iterative_grader,
+    "task_adversarial":  adversarial_grader,
 }
 
 SYSTEM_PROMPT = """You are a SQLite SQL expert. Given a database schema and a question, write a single SQL query that answers the question exactly.
@@ -100,7 +102,7 @@ def main():
     env = SQLQueryEnv()
     all_scores = {}
 
-    for task_id in ["task_easy", "task_medium", "task_hard", "task_analytics", "task_realtime", "task_expert", "task_iterative"]:
+    for task_id in ["task_easy", "task_medium", "task_hard", "task_analytics", "task_realtime", "task_expert", "task_iterative", "task_adversarial"]:
         # [START] line — exact required format
         print(f"[START] task={task_id} env={BENCHMARK_NAME} model={MODEL_NAME}")
 

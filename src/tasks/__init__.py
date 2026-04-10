@@ -1848,14 +1848,99 @@ TASK_ITERATIVE = TaskDef(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# Pre-compute expected rows — Adversarial task (SQL traps that fool naive agents)
+# ---------------------------------------------------------------------------
+
+# Trap 1: COUNT vs COUNT DISTINCT — overcounts users who streamed multiple songs
+_adversarial_q1_rows = _rows(_ref, """
+    SELECT a.name AS artist_name, COUNT(DISTINCT st.user_id) AS unique_listeners
+    FROM artists a
+    JOIN songs s ON a.id = s.artist_id
+    JOIN streams st ON s.id = st.song_id
+    GROUP BY a.id, a.name
+    ORDER BY unique_listeners DESC, a.name ASC
+""")
+
+# Trap 2: WHERE vs HAVING — WHERE COUNT(*) > 5 is a syntax error at parse time
+_adversarial_q2_rows = _rows(_ref, """
+    SELECT genre, COUNT(*) AS song_count
+    FROM songs
+    GROUP BY genre
+    HAVING COUNT(*) > 5
+    ORDER BY song_count DESC, genre ASC
+""")
+
+# Trap 3: Integer division (SUM/COUNT truncates) vs ROUND(AVG()) which rounds up
+_adversarial_q3_rows = _rows(_ref, """
+    SELECT genre, SUM(bpm) / COUNT(*) AS avg_bpm
+    FROM songs
+    GROUP BY genre
+    ORDER BY avg_bpm DESC, genre ASC
+""")
+
+# Trap 4: Missing secondary sort — non-deterministic when played_at ties exist
+_adversarial_q4_rows = _rows(_ref, """
+    SELECT u.username, s.title, st.played_at
+    FROM streams st
+    JOIN users u ON st.user_id = u.id
+    JOIN songs s ON st.song_id = s.id
+    ORDER BY st.played_at DESC, u.username ASC, s.title ASC
+    LIMIT 5
+""")
+
+# Trap 5: Correlated subquery — HAVING with nested aggregate fails; needs CTE
+_adversarial_q5_rows = _rows(_ref, """
+    WITH user_counts AS (
+        SELECT user_id, COUNT(*) AS stream_count
+        FROM streams
+        GROUP BY user_id
+    )
+    SELECT u.username, uc.stream_count
+    FROM users u
+    JOIN user_counts uc ON u.id = uc.user_id
+    WHERE uc.stream_count > (SELECT AVG(stream_count) FROM user_counts)
+    ORDER BY uc.stream_count DESC, u.username ASC
+""")
+
+TASK_ADVERSARIAL = TaskDef(
+    id="task_adversarial",
+    name="Adversarial — Tempo SQL Traps",
+    difficulty="adversarial",
+    description="Five questions designed to expose common SQL mistakes: COUNT vs COUNT DISTINCT, WHERE vs HAVING, integer division truncation, non-deterministic ordering, and nested aggregate errors.",
+    questions=[
+        Question("adversarial_q1",
+                 "How many unique users has each artist reached? Count each listener once regardless of how many of their songs the user streamed. Return artist_name, unique_listeners. Order by unique_listeners DESC, artist_name ASC.",
+                 _adversarial_q1_rows, True,
+                 ["artist_name", "unique_listeners"]),
+        Question("adversarial_q2",
+                 "Which genres contain more than 5 songs in the catalogue? Return genre, song_count. Order by song_count DESC, genre ASC.",
+                 _adversarial_q2_rows, True,
+                 ["genre", "song_count"]),
+        Question("adversarial_q3",
+                 "Average BPM per genre as a whole number — truncate, do not round. Return genre, avg_bpm. Order by avg_bpm DESC, genre ASC.",
+                 _adversarial_q3_rows, True,
+                 ["genre", "avg_bpm"]),
+        Question("adversarial_q4",
+                 "The 5 most recent streams with user and song detail. Return username, title, played_at. For ties on played_at order by username ASC then title ASC.",
+                 _adversarial_q4_rows, True,
+                 ["username", "title", "played_at"]),
+        Question("adversarial_q5",
+                 "Users who have streamed more songs than the average user (compare each user's total stream count against the mean across all users). Return username, stream_count. Order by stream_count DESC, username ASC.",
+                 _adversarial_q5_rows, True,
+                 ["username", "stream_count"]),
+    ],
+)
+
 ALL_TASKS: dict[str, TaskDef] = {
-    "task_easy":       TASK_EASY,
-    "task_medium":     TASK_MEDIUM,
-    "task_hard":       TASK_HARD,
-    "task_analytics":  TASK_ANALYTICS,
-    "task_realtime":   TASK_REALTIME,
-    "task_expert":     TASK_EXPERT,
-    "task_iterative":  TASK_ITERATIVE,
+    "task_easy":         TASK_EASY,
+    "task_medium":       TASK_MEDIUM,
+    "task_hard":         TASK_HARD,
+    "task_analytics":    TASK_ANALYTICS,
+    "task_realtime":     TASK_REALTIME,
+    "task_expert":       TASK_EXPERT,
+    "task_iterative":    TASK_ITERATIVE,
+    "task_adversarial":  TASK_ADVERSARIAL,
 }
 
 SCHEMA_DDL = """

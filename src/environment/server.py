@@ -15,8 +15,9 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from src.environment.env import SQLQueryEnv
+from src.environment.env import SQLQueryEnv, MAX_STEPS
 from src.tasks import ALL_TASKS
+from src.graders import rows_match, _partial_overlap
 from src.graders.task_easy_grader import grader as easy_grader
 from src.graders.task_medium_grader import grader as medium_grader
 from src.graders.task_hard_grader import grader as hard_grader
@@ -24,6 +25,7 @@ from src.graders.task_analytics_grader import grader as analytics_grader
 from src.graders.task_realtime_grader import grader as realtime_grader
 from src.graders.task_expert_grader import grader as expert_grader
 from src.graders.task_iterative_grader import grader as iterative_grader
+from src.graders.task_adversarial_grader import grader as adversarial_grader
 from src.baseline import run_baseline_on_env
 
 # ---------------------------------------------------------------------------
@@ -44,8 +46,9 @@ GRADERS = {
     "task_hard":      hard_grader,
     "task_analytics": analytics_grader,
     "task_realtime":  realtime_grader,
-    "task_expert":    expert_grader,
-    "task_iterative": iterative_grader,
+    "task_expert":      expert_grader,
+    "task_iterative":   iterative_grader,
+    "task_adversarial": adversarial_grader,
 }
 
 # ---------------------------------------------------------------------------
@@ -135,6 +138,66 @@ def grader(task_id: str = "task_easy"):
 
     score = GRADERS[task_id].grade(env.get_query_history())
     return {"task_id": task_id, "score": score}
+
+
+@app.get("/episode_stats")
+def episode_stats(task_id: str = "task_easy"):
+    """
+    Per-question breakdown for the current episode:
+      - attempts: how many times the agent tried this question
+      - best_score: highest score achieved (0.05 / 0.40 / 0.60 / 0.80 / 0.95)
+      - solved: True if best_score >= 0.95
+      - best_sql: the SQL that achieved best_score
+    Also returns overall_score, steps_used, steps_remaining.
+    """
+    if task_id not in GRADERS:
+        raise HTTPException(status_code=400, detail=f"Unknown task_id '{task_id}'")
+
+    task    = ALL_TASKS[task_id]
+    history = env.get_query_history()
+
+    per_question: dict[str, dict] = {}
+    for q in task.questions:
+        attempts   = [e for e in history if e.get("question_id") == q.id]
+        best_score = 0.0
+        best_sql   = None
+
+        for attempt in attempts:
+            rows  = attempt.get("rows")
+            error = attempt.get("error")
+
+            if error or rows is None:
+                score = 0.05
+            else:
+                matched, reason = rows_match(rows, q.expected_rows, q.order_sensitive)
+                if matched:
+                    score = 0.95
+                elif reason == "correct_columns_wrong_values":
+                    overlap = _partial_overlap(rows, q.expected_rows, q.order_sensitive)
+                    score   = 0.80 if overlap >= 0.8 else 0.60 if overlap >= 0.5 else 0.40
+                else:
+                    score = 0.05
+
+            if score > best_score:
+                best_score = score
+                best_sql   = attempt.get("sql")
+
+        per_question[q.id] = {
+            "attempts":   len(attempts),
+            "best_score": best_score,
+            "solved":     best_score >= 0.95,
+            "best_sql":   best_sql,
+        }
+
+    overall = GRADERS[task_id].grade(history)
+    return {
+        "task_id":         task_id,
+        "overall_score":   overall,
+        "steps_used":      env.step_count,
+        "steps_remaining": max(0, MAX_STEPS - env.step_count),
+        "solved_count":    sum(1 for v in per_question.values() if v["solved"]),
+        "questions":       per_question,
+    }
 
 
 @app.get("/baseline")

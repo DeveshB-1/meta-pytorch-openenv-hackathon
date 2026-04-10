@@ -56,6 +56,12 @@ tasks:
     description: "Multi-step refinement challenges: running totals, per-user genre rankings, LEFT JOIN edge cases, and above-average completion analysis."
     grader: src/graders/task_iterative_grader.py
 
+  - id: task_adversarial
+    name: "Adversarial — Tempo SQL Traps"
+    difficulty: adversarial
+    description: "Five questions exposing common SQL mistakes: COUNT vs COUNT DISTINCT, WHERE vs HAVING, integer division truncation, non-deterministic ordering, and nested aggregate errors."
+    grader: src/graders/task_adversarial_grader.py
+
 api:
   host: 0.0.0.0
   port: 7860
@@ -67,5 +73,6 @@ api:
     - /grader
     - /baseline
     - /leaderboard
+    - /episode_stats
     - /health
     - /mcp

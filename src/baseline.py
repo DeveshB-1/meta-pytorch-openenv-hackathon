@@ -372,6 +372,49 @@ BASELINE_QUERIES: dict[str, str] = {
         WHERE completion_rate > (SELECT avg_rate FROM avg_comp) AND skip_count > 0
         ORDER BY completion_rate DESC, title ASC
     """,
+
+    # ADVERSARIAL
+    "adversarial_q1": """
+        SELECT a.name AS artist_name, COUNT(DISTINCT st.user_id) AS unique_listeners
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        ORDER BY unique_listeners DESC, a.name ASC
+    """,
+    "adversarial_q2": """
+        SELECT genre, COUNT(*) AS song_count
+        FROM songs
+        GROUP BY genre
+        HAVING COUNT(*) > 5
+        ORDER BY song_count DESC, genre ASC
+    """,
+    "adversarial_q3": """
+        SELECT genre, SUM(bpm) / COUNT(*) AS avg_bpm
+        FROM songs
+        GROUP BY genre
+        ORDER BY avg_bpm DESC, genre ASC
+    """,
+    "adversarial_q4": """
+        SELECT u.username, s.title, st.played_at
+        FROM streams st
+        JOIN users u ON st.user_id = u.id
+        JOIN songs s ON st.song_id = s.id
+        ORDER BY st.played_at DESC, u.username ASC, s.title ASC
+        LIMIT 5
+    """,
+    "adversarial_q5": """
+        WITH user_counts AS (
+            SELECT user_id, COUNT(*) AS stream_count
+            FROM streams
+            GROUP BY user_id
+        )
+        SELECT u.username, uc.stream_count
+        FROM users u
+        JOIN user_counts uc ON u.id = uc.user_id
+        WHERE uc.stream_count > (SELECT AVG(stream_count) FROM user_counts)
+        ORDER BY uc.stream_count DESC, u.username ASC
+    """,
 }
 
 # ---------------------------------------------------------------------------

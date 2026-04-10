@@ -44,7 +44,21 @@ Tempo is a music streaming platform with 6 normalised tables. Every stream recor
 
 ## Environment
 
-Each episode presents **5 natural-language analytics questions** at a chosen difficulty. The agent submits SQL queries and receives rewards based on correctness. Goal: perfect episode score of 1.0.
+Each episode presents **5 natural-language analytics questions** at a chosen difficulty. The agent submits SQL queries and receives rewards based on correctness.
+
+### Why This Works for RL
+
+SQL query generation is a natural multi-step problem: write a query → observe partial results → diagnose what's wrong → refine. This is exactly the loop RL is built for.
+
+| RL concept | Tempo mapping |
+|---|---|
+| **State** | DB schema + current question text + previous result rows |
+| **Action** | Submit SQL / request hint / explain query plan |
+| **Reward** | 5-tier partial credit — dense signal at every attempt |
+| **Horizon** | 10 steps per episode — room for 2–3 refinement cycles |
+| **Terminal** | 10 steps exhausted or all 5 questions answered |
+
+The key design choice is the **dense reward structure**. An agent that returns the right columns but wrong values earns 0.40 — not 0.0. This gives gradient signal before the agent finds the exact answer, dramatically reducing sparse-reward cold-start problems.
 
 ### Reward Structure
 
@@ -56,8 +70,6 @@ Each episode presents **5 natural-language analytics questions** at a chosen dif
 | Correct columns, < 50 % rows match | `+0.40` |
 | Non-empty result (wrong structure) | `+0.10` |
 | SQL error / hint / explain | `+0.05` |
-
-The grader uses **partial row credit** — if an agent gets the right schema and most rows correct, it earns meaningful reward even without an exact answer. This produces denser gradient signal for RL training.
 
 ---
 
@@ -72,8 +84,9 @@ The grader uses **partial row credit** — if an agent gets the right schema and
 | `task_realtime` | Realtime | Time-series, MoM growth, trend analysis | "Monthly skip-rate trend across all streams" |
 | `task_expert` | Expert | All 6 tables, playlist attribution, penetration rates | "Artist listener penetration % across all users" |
 | `task_iterative` | Iterative | Running totals, per-user rankings, LEFT JOIN edge cases | "Each user's most-streamed genre using RANK()" |
+| `task_adversarial` | Adversarial | SQL traps: COUNT DISTINCT, HAVING, integer division, ordering | "Unique listeners per artist (not streams)" |
 
-**35 questions total** across 7 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
+**40 questions total** across 8 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
 
 ### Calibration
 
@@ -88,9 +101,9 @@ Template baseline = hardcoded correct SQL. Theoretical max = 0.9499 (all 5 quest
 | `task_realtime` | 0.84 | **0.84** | 0.95 | Date slicing, MoM COALESCE |
 | `task_expert` | 0.63 | **0.81** | 0.95 | All 6 tables, LEFT JOIN attribution |
 | `task_iterative` | 0.81 | **0.66** | 0.95 | LEFT JOIN IS NULL traps, RANK() OVER |
-| **Average** | **0.81** | **0.83** | **0.95** | |
+| `task_adversarial` | — | **TBD** | 0.95 | COUNT DISTINCT, HAVING, integer division |
 
-LLM scores measured live with Groq `llama-3.3-70b-versatile` via the `/baseline` endpoint. The iterative task (LEFT JOIN edge cases) is the hardest for LLMs — dropping from 0.81 template to 0.66 LLM shows genuine reasoning difficulty. Track live results at `/leaderboard`.
+LLM scores measured live with Groq `llama-3.3-70b-versatile` via `/baseline`. The adversarial task specifically targets mistakes LLMs make on production SQL — even strong models often write `COUNT(user_id)` instead of `COUNT(DISTINCT user_id)`, or use `WHERE` instead of `HAVING`. Track live results at `/leaderboard`.
 
 ---
 
@@ -146,6 +159,7 @@ Returns `EXPLAIN QUERY PLAN` output — lets the agent verify join strategy and 
 | `/grader` | GET | Episode score (0.0–1.0) |
 | `/baseline` | GET | Run baseline agent, return scores for all tasks + update leaderboard |
 | `/leaderboard` | GET | Best run per model, sorted by avg score — auto-updated by `/baseline` |
+| `/episode_stats` | GET | Per-question breakdown: attempts, best_score, best_sql, solved, steps_remaining |
 | `/health` | GET | Liveness probe with DB row counts |
 | `/mcp` | POST | Model Context Protocol JSON-RPC 2.0 |
 | `/ui` | GET | Interactive SQL playground |
@@ -246,6 +260,69 @@ print(score["score"])  # 0.0–1.0
 
 ---
 
+## Training an Agent
+
+The environment is designed to be loop-friendly. Here's the minimal agent loop in Python:
+
+```python
+import httpx
+
+BASE = "https://dev176-openenv-sql-query-env.hf.space"
+
+for episode in range(N_EPISODES):
+    obs       = httpx.post(f"{BASE}/reset", json={"task_id": "task_hard"}).json()["observation"]
+    schema    = obs["schema"]
+    questions = obs["questions"]
+    history   = []
+
+    for question in questions:
+        for attempt in range(3):                        # up to 3 refinements per question
+            sql = your_policy(schema, question["text"], history)
+
+            result = httpx.post(f"{BASE}/step", json={
+                "action_type": "query",
+                "payload": {"sql": sql, "question_id": question["id"]}
+            }).json()
+
+            reward          = result["reward"]                      # 0.05 / 0.40 / 0.60 / 0.80 / 0.95
+            rows            = result["observation"]["rows"]         # what the DB returned
+            steps_remaining = result["observation"]["steps_remaining"]
+
+            history.append({"question": question["text"], "sql": sql, "rows": rows, "reward": reward})
+            update_policy(reward, sql, rows)                        # PPO / GRPO / DPO
+
+            if reward >= 0.95 or steps_remaining == 0:
+                break
+
+    # Per-question breakdown — useful for logging and curriculum design
+    stats = httpx.get(f"{BASE}/episode_stats", params={"task_id": "task_hard"}).json()
+    solved = stats["solved_count"]          # 0–5
+    score  = stats["overall_score"]         # 0.0–1.0
+    print(f"Episode score: {score:.3f}  solved: {solved}/5")
+```
+
+The `steps_remaining` field in every `/step` response lets the agent decide whether to attempt another refinement or move on to the next question. The `/episode_stats` endpoint provides per-question `best_sql`, `best_score`, and `attempts` — exactly what a curriculum learning loop needs.
+
+---
+
+## Research Questions
+
+This environment is designed to make specific RL research questions tractable:
+
+**1. Does multi-step refinement beat one-shot?**
+The 10-step budget lets agents iterate. Does a policy that reads error rows and retries outperform one-shot SQL generation? The `task_iterative` task (LEFT JOIN edge cases) shows this gap — LLM one-shot scores **0.66** while correct SQL scores **0.95**.
+
+**2. Does `explain` improve sample efficiency?**
+Agents can call `EXPLAIN QUERY PLAN` before committing a query (costs 1 step, reward 0.05). Does inspecting the plan reduce SQL errors enough to recover that step cost on harder tasks?
+
+**3. Does partial credit accelerate convergence?**
+Compare training with binary rewards (0/1) against the 5-tier partial credit (0.05/0.40/0.60/0.80/0.95). Does denser signal reduce episodes-to-threshold, especially on `task_expert` where exact match requires all 6 tables?
+
+**4. Do adversarial traps transfer to real-world SQL?**
+`task_adversarial` contains traps common in production analytics: `COUNT` vs `COUNT DISTINCT`, `WHERE` vs `HAVING`, integer division truncation. Does training on this task improve performance on external benchmarks like Spider or BIRD?
+
+---
+
 ## Setup
 
 ```bash
@@ -298,6 +375,10 @@ docker run -p 7860:7860 tempo-openenv
 - **Partial row credit grader** — dense reward signal for RL training; intermediate rewards at 0.40, 0.60, and 0.80 before reaching 0.95
 - **`/explain` action** — unique to this environment; lets agents inspect query plans before submitting
 - **`/leaderboard` endpoint** — in-memory benchmark leaderboard, best-run-per-model sorted by avg score, auto-populated by `/baseline`
+- **`/episode_stats` endpoint** — per-question breakdown (attempts, best_score, best_sql, solved) for curriculum design and logging
+- **`steps_remaining` in every observation** — agents can make budget-aware decisions without counting steps themselves
+- **`task_adversarial`** — 8th task with 5 SQL traps targeting mistakes LLMs commonly make (COUNT DISTINCT, HAVING, integer division, tie-breaking, correlated subqueries)
+- **Research questions section** — four concrete RL research questions this environment can help answer
 - **LLM baseline using OpenAI client** — `API_BASE_URL` + `MODEL_NAME` configurable at runtime
 - **Interactive UI** — `/ui` lets humans explore the environment in a browser
 - **MCP protocol** — JSON-RPC 2.0 tool discovery out of the box with 4 tools
