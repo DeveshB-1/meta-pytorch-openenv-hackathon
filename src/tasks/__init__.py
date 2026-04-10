@@ -1661,12 +1661,201 @@ TASK_REALTIME = TaskDef(
     ],
 )
 
+# ---------------------------------------------------------------------------
+# Pre-compute expected rows — Expert task (all 6 tables, complex joins)
+# ---------------------------------------------------------------------------
+
+def _rows(ref_conn, sql):
+    cur = ref_conn.execute(sql)
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+_ref = create_db()
+
+_expert_q1_rows = _rows(_ref, """
+    SELECT p.name AS playlist_name, u.username AS owner_username,
+           COUNT(DISTINCT ps.song_id) AS songs_in_playlist,
+           COUNT(st.id) AS playlist_streams
+    FROM playlists p
+    JOIN users u ON p.user_id = u.id
+    JOIN playlist_songs ps ON p.id = ps.playlist_id
+    LEFT JOIN streams st ON ps.song_id = st.song_id AND st.source = 'playlist'
+    WHERE p.is_public = 1
+    GROUP BY p.id, p.name, u.username
+    ORDER BY playlist_streams DESC, p.name ASC
+""")
+
+_expert_q2_rows = _rows(_ref, """
+    SELECT u.username, COUNT(DISTINCT s.genre) AS unique_genres, COUNT(st.id) AS total_streams
+    FROM users u
+    JOIN streams st ON u.id = st.user_id
+    JOIN songs s ON st.song_id = s.id
+    GROUP BY u.id, u.username
+    HAVING unique_genres >= 3
+    ORDER BY unique_genres DESC, u.username ASC
+""")
+
+_expert_q3_rows = _rows(_ref, """
+    SELECT a.name AS artist_name,
+           COUNT(DISTINCT st.user_id) AS listener_count,
+           ROUND(100.0 * COUNT(DISTINCT st.user_id) / (SELECT COUNT(*) FROM users), 2) AS penetration_pct
+    FROM artists a
+    JOIN songs s ON a.id = s.artist_id
+    LEFT JOIN streams st ON s.id = st.song_id
+    GROUP BY a.id, a.name
+    ORDER BY penetration_pct DESC, a.name ASC
+""")
+
+_expert_q4_rows = _rows(_ref, """
+    SELECT s.mood,
+           COUNT(st.id) AS total_streams,
+           SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skip_count,
+           ROUND(100.0 * SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) / COUNT(st.id), 2) AS skip_pct
+    FROM songs s
+    JOIN streams st ON s.id = st.song_id
+    GROUP BY s.mood
+    ORDER BY skip_pct DESC, s.mood ASC
+""")
+
+_expert_q5_rows = _rows(_ref, """
+    SELECT u.username, u.country,
+           COUNT(st.id) AS stream_count,
+           ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+    FROM users u
+    JOIN streams st ON u.id = st.user_id
+    WHERE u.subscription_tier = 'premium'
+    GROUP BY u.id, u.username, u.country
+    HAVING COUNT(st.id) > 10 AND ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) > 70
+    ORDER BY stream_count DESC, u.username ASC
+""")
+
+TASK_EXPERT = TaskDef(
+    id="task_expert",
+    name="Expert — Tempo Full-Database Analytics",
+    difficulty="expert",
+    description="Cross-table queries using all 6 tables: playlist streams, artist penetration, skip patterns by mood, and premium power users.",
+    questions=[
+        Question("expert_q1",
+                 "For each public playlist, count its songs and how many streams came from source='playlist'. Return playlist_name, owner_username, songs_in_playlist, playlist_streams. Order by playlist_streams DESC, playlist_name ASC.",
+                 _expert_q1_rows, True, ["playlist_name", "owner_username", "songs_in_playlist", "playlist_streams"]),
+        Question("expert_q2",
+                 "Users who have listened to 3 or more distinct genres. Return username, unique_genres, total_streams. Order by unique_genres DESC, username ASC.",
+                 _expert_q2_rows, True, ["username", "unique_genres", "total_streams"]),
+        Question("expert_q3",
+                 "Artist listener penetration: what percentage of all users has streamed each artist? Return artist_name, listener_count, penetration_pct (ROUND 2). Order by penetration_pct DESC, artist_name ASC.",
+                 _expert_q3_rows, True, ["artist_name", "listener_count", "penetration_pct"]),
+        Question("expert_q4",
+                 "Skip rate by song mood. Return mood, total_streams, skip_count, skip_pct (ROUND 2). Order by skip_pct DESC, mood ASC.",
+                 _expert_q4_rows, True, ["mood", "total_streams", "skip_count", "skip_pct"]),
+        Question("expert_q5",
+                 "Premium users with more than 10 streams and completion rate above 70%. Return username, country, stream_count, completion_rate (ROUND 2). Order by stream_count DESC, username ASC.",
+                 _expert_q5_rows, True, ["username", "country", "stream_count", "completion_rate"]),
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Pre-compute expected rows — Iterative task (window functions, requires refinement)
+# ---------------------------------------------------------------------------
+
+_iterative_q1_rows = _rows(_ref, """
+    WITH monthly AS (
+        SELECT a.name AS artist_name,
+               SUBSTR(st.played_at, 1, 7) AS year_month,
+               COUNT(*) AS monthly_streams
+        FROM streams st
+        JOIN songs s ON st.song_id = s.id
+        JOIN artists a ON s.artist_id = a.id
+        GROUP BY a.name, year_month
+    )
+    SELECT artist_name, year_month, monthly_streams,
+           SUM(monthly_streams) OVER (PARTITION BY artist_name ORDER BY year_month) AS running_total
+    FROM monthly
+    ORDER BY artist_name ASC, year_month ASC
+""")
+
+_iterative_q2_rows = _rows(_ref, """
+    WITH genre_counts AS (
+        SELECT st.user_id, s.genre, COUNT(*) AS genre_streams,
+               RANK() OVER (PARTITION BY st.user_id ORDER BY COUNT(*) DESC) AS rnk
+        FROM streams st
+        JOIN songs s ON st.song_id = s.id
+        GROUP BY st.user_id, s.genre
+    )
+    SELECT u.username, gc.genre AS favorite_genre, gc.genre_streams
+    FROM users u
+    JOIN genre_counts gc ON u.id = gc.user_id AND gc.rnk = 1
+    ORDER BY gc.genre_streams DESC, u.username ASC
+""")
+
+_iterative_q3_rows = _rows(_ref, """
+    SELECT s.title, a.name AS artist_name, s.genre, s.release_year
+    FROM songs s
+    JOIN artists a ON s.artist_id = a.id
+    LEFT JOIN streams st ON s.id = st.song_id
+    WHERE st.id IS NULL
+    ORDER BY s.release_year DESC, s.title ASC
+""")
+
+_iterative_q4_rows = _rows(_ref, """
+    SELECT u.username, u.country, u.subscription_tier
+    FROM users u
+    LEFT JOIN streams st ON u.id = st.user_id AND st.completed = 1
+    WHERE st.id IS NULL
+    ORDER BY u.username ASC
+""")
+
+_iterative_q5_rows = _rows(_ref, """
+    WITH song_stats AS (
+        SELECT s.id, s.title, a.name AS artist_name,
+               COUNT(st.id) AS total_streams,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate,
+               SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skip_count
+        FROM songs s
+        JOIN artists a ON s.artist_id = a.id
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY s.id, s.title, a.name
+    ),
+    avg_comp AS (
+        SELECT AVG(completion_rate) AS avg_rate FROM song_stats
+    )
+    SELECT title, artist_name, completion_rate, skip_count
+    FROM song_stats
+    WHERE completion_rate > (SELECT avg_rate FROM avg_comp) AND skip_count > 0
+    ORDER BY completion_rate DESC, title ASC
+""")
+
+TASK_ITERATIVE = TaskDef(
+    id="task_iterative",
+    name="Iterative — Tempo Window Functions and Edge Cases",
+    difficulty="iterative",
+    description="Multi-step refinement challenges: running totals, per-user rankings, LEFT JOIN edge cases, and above-average completion with skips.",
+    questions=[
+        Question("iterative_q1",
+                 "Running total streams per artist by month using a window function. Return artist_name, year_month, monthly_streams, running_total (SUM OVER PARTITION BY artist_name ORDER BY year_month). Order by artist_name ASC, year_month ASC.",
+                 _iterative_q1_rows, True, ["artist_name", "year_month", "monthly_streams", "running_total"]),
+        Question("iterative_q2",
+                 "Each user's single most-streamed genre (RANK window function, rnk=1). Return username, favorite_genre, genre_streams. Order by genre_streams DESC, username ASC.",
+                 _iterative_q2_rows, True, ["username", "favorite_genre", "genre_streams"]),
+        Question("iterative_q3",
+                 "Songs that have never been streamed (LEFT JOIN + IS NULL). Return title, artist_name, genre, release_year. Order by release_year DESC, title ASC.",
+                 _iterative_q3_rows, True, ["title", "artist_name", "genre", "release_year"]),
+        Question("iterative_q4",
+                 "Users who have never completed a stream (LEFT JOIN streams WHERE completed=1 IS NULL). Return username, country, subscription_tier. Order by username ASC.",
+                 _iterative_q4_rows, True, ["username", "country", "subscription_tier"]),
+        Question("iterative_q5",
+                 "Songs with above-average completion rate that were also skipped at least once. Use a CTE for per-song stats and another for the average. Return title, artist_name, completion_rate (ROUND 2), skip_count. Order by completion_rate DESC, title ASC.",
+                 _iterative_q5_rows, True, ["title", "artist_name", "completion_rate", "skip_count"]),
+    ],
+)
+
 ALL_TASKS: dict[str, TaskDef] = {
-    "task_easy":      TASK_EASY,
-    "task_medium":    TASK_MEDIUM,
-    "task_hard":      TASK_HARD,
-    "task_analytics": TASK_ANALYTICS,
-    "task_realtime":  TASK_REALTIME,
+    "task_easy":       TASK_EASY,
+    "task_medium":     TASK_MEDIUM,
+    "task_hard":       TASK_HARD,
+    "task_analytics":  TASK_ANALYTICS,
+    "task_realtime":   TASK_REALTIME,
+    "task_expert":     TASK_EXPERT,
+    "task_iterative":  TASK_ITERATIVE,
 }
 
 SCHEMA_DDL = """

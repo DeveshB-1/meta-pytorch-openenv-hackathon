@@ -254,6 +254,124 @@ BASELINE_QUERIES: dict[str, str] = {
         GROUP BY p.id, p.name, u.username
         ORDER BY song_count DESC, p.name ASC
     """,
+
+    # EXPERT
+    "expert_q1": """
+        SELECT p.name AS playlist_name, u.username AS owner_username,
+               COUNT(DISTINCT ps.song_id) AS songs_in_playlist,
+               COUNT(st.id) AS playlist_streams
+        FROM playlists p
+        JOIN users u ON p.user_id = u.id
+        JOIN playlist_songs ps ON p.id = ps.playlist_id
+        LEFT JOIN streams st ON ps.song_id = st.song_id AND st.source = 'playlist'
+        WHERE p.is_public = 1
+        GROUP BY p.id, p.name, u.username
+        ORDER BY playlist_streams DESC, p.name ASC
+    """,
+    "expert_q2": """
+        SELECT u.username, COUNT(DISTINCT s.genre) AS unique_genres, COUNT(st.id) AS total_streams
+        FROM users u
+        JOIN streams st ON u.id = st.user_id
+        JOIN songs s ON st.song_id = s.id
+        GROUP BY u.id, u.username
+        HAVING unique_genres >= 3
+        ORDER BY unique_genres DESC, u.username ASC
+    """,
+    "expert_q3": """
+        SELECT a.name AS artist_name,
+               COUNT(DISTINCT st.user_id) AS listener_count,
+               ROUND(100.0 * COUNT(DISTINCT st.user_id) / (SELECT COUNT(*) FROM users), 2) AS penetration_pct
+        FROM artists a
+        JOIN songs s ON a.id = s.artist_id
+        LEFT JOIN streams st ON s.id = st.song_id
+        GROUP BY a.id, a.name
+        ORDER BY penetration_pct DESC, a.name ASC
+    """,
+    "expert_q4": """
+        SELECT s.mood,
+               COUNT(st.id) AS total_streams,
+               SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skip_count,
+               ROUND(100.0 * SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) / COUNT(st.id), 2) AS skip_pct
+        FROM songs s
+        JOIN streams st ON s.id = st.song_id
+        GROUP BY s.mood
+        ORDER BY skip_pct DESC, s.mood ASC
+    """,
+    "expert_q5": """
+        SELECT u.username, u.country,
+               COUNT(st.id) AS stream_count,
+               ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate
+        FROM users u
+        JOIN streams st ON u.id = st.user_id
+        WHERE u.subscription_tier = 'premium'
+        GROUP BY u.id, u.username, u.country
+        HAVING COUNT(st.id) > 10 AND ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) > 70
+        ORDER BY stream_count DESC, u.username ASC
+    """,
+
+    # ITERATIVE
+    "iterative_q1": """
+        WITH monthly AS (
+            SELECT a.name AS artist_name,
+                   SUBSTR(st.played_at, 1, 7) AS year_month,
+                   COUNT(*) AS monthly_streams
+            FROM streams st
+            JOIN songs s ON st.song_id = s.id
+            JOIN artists a ON s.artist_id = a.id
+            GROUP BY a.name, year_month
+        )
+        SELECT artist_name, year_month, monthly_streams,
+               SUM(monthly_streams) OVER (PARTITION BY artist_name ORDER BY year_month) AS running_total
+        FROM monthly
+        ORDER BY artist_name ASC, year_month ASC
+    """,
+    "iterative_q2": """
+        WITH genre_counts AS (
+            SELECT st.user_id, s.genre, COUNT(*) AS genre_streams,
+                   RANK() OVER (PARTITION BY st.user_id ORDER BY COUNT(*) DESC) AS rnk
+            FROM streams st
+            JOIN songs s ON st.song_id = s.id
+            GROUP BY st.user_id, s.genre
+        )
+        SELECT u.username, gc.genre AS favorite_genre, gc.genre_streams
+        FROM users u
+        JOIN genre_counts gc ON u.id = gc.user_id AND gc.rnk = 1
+        ORDER BY gc.genre_streams DESC, u.username ASC
+    """,
+    "iterative_q3": """
+        SELECT s.title, a.name AS artist_name, s.genre, s.release_year
+        FROM songs s
+        JOIN artists a ON s.artist_id = a.id
+        LEFT JOIN streams st ON s.id = st.song_id
+        WHERE st.id IS NULL
+        ORDER BY s.release_year DESC, s.title ASC
+    """,
+    "iterative_q4": """
+        SELECT u.username, u.country, u.subscription_tier
+        FROM users u
+        LEFT JOIN streams st ON u.id = st.user_id AND st.completed = 1
+        WHERE st.id IS NULL
+        ORDER BY u.username ASC
+    """,
+    "iterative_q5": """
+        WITH song_stats AS (
+            SELECT s.id, s.title, a.name AS artist_name,
+                   COUNT(st.id) AS total_streams,
+                   ROUND(100.0 * SUM(st.completed) / COUNT(st.id), 2) AS completion_rate,
+                   SUM(CASE WHEN st.skipped_at_sec IS NOT NULL THEN 1 ELSE 0 END) AS skip_count
+            FROM songs s
+            JOIN artists a ON s.artist_id = a.id
+            JOIN streams st ON s.id = st.song_id
+            GROUP BY s.id, s.title, a.name
+        ),
+        avg_comp AS (
+            SELECT AVG(completion_rate) AS avg_rate FROM song_stats
+        )
+        SELECT title, artist_name, completion_rate, skip_count
+        FROM song_stats
+        WHERE completion_rate > (SELECT avg_rate FROM avg_comp) AND skip_count > 0
+        ORDER BY completion_rate DESC, title ASC
+    """,
 }
 
 # ---------------------------------------------------------------------------

@@ -50,10 +50,14 @@ Each episode presents **5 natural-language analytics questions** at a chosen dif
 
 | Outcome | Reward |
 |---------|--------|
-| Correct answer (exact match) | `+0.95` |
-| Non-empty result (partial progress) | `+0.10` |
-| SQL error | `+0.05` |
-| Hint action | `+0.05` |
+| Correct answer (exact row match) | `+0.95` |
+| High partial match (≥ 80 % rows correct) | `+0.80` |
+| Medium partial match (≥ 50 % rows correct) | `+0.60` |
+| Correct columns, < 50 % rows match | `+0.40` |
+| Non-empty result (wrong structure) | `+0.10` |
+| SQL error / hint / explain | `+0.05` |
+
+The grader uses **partial row credit** — if an agent gets the right schema and most rows correct, it earns meaningful reward even without an exact answer. This produces denser gradient signal for RL training.
 
 ---
 
@@ -64,8 +68,12 @@ Each episode presents **5 natural-language analytics questions** at a chosen dif
 | `task_easy` | Easy | Single-table SELECT, WHERE, GROUP BY | "List all songs in the Electronic genre" |
 | `task_medium` | Medium | JOINs, multi-table aggregations | "What are the top 10 most streamed songs?" |
 | `task_hard` | Hard | Window functions, CTEs, subqueries | "Rank songs by stream count within their genre" |
+| `task_analytics` | Analytics | Revenue proxies, engagement rates, cross-tabulations | "Revenue proxy per genre (premium=2, free=1)" |
+| `task_realtime` | Realtime | Time-series, MoM growth, trend analysis | "Monthly skip-rate trend across all streams" |
+| `task_expert` | Expert | All 6 tables, playlist attribution, penetration rates | "Artist listener penetration % across all users" |
+| `task_iterative` | Iterative | Running totals, per-user rankings, LEFT JOIN edge cases | "Each user's most-streamed genre using RANK()" |
 
-Scoring: average of best-attempt-per-question across all 5 questions. Scores are strictly in (0, 1) — partial credit is always awarded.
+**35 questions total** across 7 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
 
 ---
 
@@ -84,11 +92,17 @@ Scoring: average of best-attempt-per-question across all 5 questions. Scores are
 }
 ```
 
-**Request a hint (costs a step, no reward):**
+**Request a hint (costs a step, +0.05 reward):**
 ```json
 { "action_type": "hint", "payload": { "type": "schema" } }
 { "action_type": "hint", "payload": { "type": "sample_rows", "table": "streams" } }
 ```
+
+**Explain a query before committing (costs a step, +0.05 reward):**
+```json
+{ "action_type": "explain", "payload": { "sql": "SELECT ..." } }
+```
+Returns `EXPLAIN QUERY PLAN` output — lets the agent verify join strategy and index usage before spending a step on the actual query.
 
 ### Observation
 ```json
@@ -109,7 +123,7 @@ Scoring: average of best-attempt-per-question across all 5 questions. Scores are
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/reset` | POST | Start episode — returns schema DDL + questions |
-| `/step` | POST | Execute SQL or hint — returns rows + reward |
+| `/step` | POST | Execute SQL, hint, or explain — returns rows + reward |
 | `/state` | GET | Current task, step count, history |
 | `/tasks` | GET | All tasks with questions and action schema |
 | `/grader` | GET | Episode score (0.0–1.0) |
@@ -124,18 +138,20 @@ Scoring: average of best-attempt-per-question across all 5 questions. Scores are
 
 The `/mcp` endpoint implements [Model Context Protocol](https://modelcontextprotocol.io) (JSON-RPC 2.0) — any MCP-compatible AI client can auto-discover and use the environment with no custom integration.
 
+Four tools exposed: `reset`, `query`, `hint`, `explain`.
+
 ```bash
 curl -X POST https://dev176-openenv-sql-query-env.hf.space/mcp \
   -H "Content-Type: application/json" \
   -d '{"method": "tools/list"}'
-# Returns: reset, query, hint tools with full schemas
+# Returns: reset, query, hint, explain tools with full schemas
 ```
 
 ---
 
 ## Baseline & Inference
 
-`inference.py` runs all 3 tasks using the OpenAI-compatible client. Set `API_BASE_URL` + `MODEL_NAME` + `HF_TOKEN` for LLM mode; falls back to template SQL if no key is set. Outputs structured `[START]`/`[STEP]`/`[END]` logs.
+`inference.py` runs all 7 tasks using the OpenAI-compatible client. Set `API_BASE_URL` + `MODEL_NAME` + `HF_TOKEN` for LLM mode; falls back to template SQL if no key is set. Outputs structured `[START]`/`[STEP]`/`[END]` logs.
 
 ```bash
 # Template mode
@@ -158,7 +174,7 @@ Example output:
 
 ```bash
 curl https://dev176-openenv-sql-query-env.hf.space/baseline
-# {"mode": "template", "scores": {"task_easy": 0.95, "task_medium": 0.95, "task_hard": 0.95}}
+# {"mode": "template", "scores": {"task_easy": 0.95, "task_medium": 0.95, ...}}
 ```
 
 ---
@@ -170,32 +186,43 @@ import httpx
 
 BASE = "https://dev176-openenv-sql-query-env.hf.space"
 
-# Start a hard episode
-obs = httpx.post(f"{BASE}/reset", json={"task_id": "task_hard"}).json()
+# Start an expert episode
+obs = httpx.post(f"{BASE}/reset", json={"task_id": "task_expert"}).json()
 print(obs["observation"]["questions"][0]["text"])
-# "Rank songs by stream count within their genre using a window function..."
+# "For each public playlist, count its songs and how many streams came from source='playlist'..."
 
-# Submit SQL
+# Explain your query plan before committing
+plan = httpx.post(f"{BASE}/step", json={
+    "action_type": "explain",
+    "payload": {
+        "sql": "SELECT p.name, COUNT(st.id) FROM playlists p JOIN playlist_songs ps ON p.id=ps.playlist_id LEFT JOIN streams st ON ps.song_id=st.song_id AND st.source='playlist' WHERE p.is_public=1 GROUP BY p.id"
+    }
+}).json()
+print(plan["observation"]["plan"])  # ["SCAN playlists p", "SEARCH playlist_songs ...", ...]
+
+# Submit the query for real
 result = httpx.post(f"{BASE}/step", json={
     "action_type": "query",
     "payload": {
         "sql": """
-            WITH song_streams AS (
-                SELECT song_id, COUNT(*) AS stream_count FROM streams GROUP BY song_id
-            ),
-            avg_streams AS (SELECT AVG(stream_count) AS avg_count FROM song_streams)
-            SELECT s.title, s.genre, ss.stream_count
-            FROM songs s JOIN song_streams ss ON s.id = ss.song_id
-            WHERE ss.stream_count > (SELECT avg_count FROM avg_streams)
-            ORDER BY ss.stream_count DESC, s.title ASC
+            SELECT p.name AS playlist_name, u.username AS owner_username,
+                   COUNT(DISTINCT ps.song_id) AS songs_in_playlist,
+                   COUNT(st.id) AS playlist_streams
+            FROM playlists p
+            JOIN users u ON p.user_id = u.id
+            JOIN playlist_songs ps ON p.id = ps.playlist_id
+            LEFT JOIN streams st ON ps.song_id = st.song_id AND st.source = 'playlist'
+            WHERE p.is_public = 1
+            GROUP BY p.id, p.name, u.username
+            ORDER BY playlist_streams DESC, p.name ASC
         """,
-        "question_id": "hard_q3"
+        "question_id": "expert_q1"
     }
 }).json()
 print(result["reward"])  # 0.95
 
 # Get episode score
-score = httpx.get(f"{BASE}/grader", params={"task_id": "task_hard"}).json()
+score = httpx.get(f"{BASE}/grader", params={"task_id": "task_expert"}).json()
 print(score["score"])  # 0.0–1.0
 ```
 
@@ -217,6 +244,9 @@ open http://localhost:8000/ui
 # Run inference
 python inference.py
 
+# Run tests (25 tests)
+python -m pytest tests/ -v
+
 # Validate
 python scripts/validate.py
 ```
@@ -233,10 +263,12 @@ docker run -p 7860:7860 tempo-openenv
 ## Why This Environment is Interesting for RL
 
 - **Rich behavioural schema** — skip timestamps, completion flags, and source labels enable queries that reflect real recommendation-engine analytics
-- **Intermediate rewards** — `+0.05` on any non-empty result gives gradient signal before finding the exact answer
-- **Hint action** — agent can request schema or sample rows mid-episode, at the cost of a step
+- **Partial row credit** — grader awards 0.80/0.60/0.40 based on row overlap %, giving continuous gradient signal instead of binary correct/wrong
+- **Intermediate step rewards** — `+0.05` on any non-empty result; `+0.10` on a non-empty correct-schema result
+- **Explain action** — agent can run `EXPLAIN QUERY PLAN` before committing, creating a cost/benefit tradeoff for query inspection
+- **Hint action** — request schema or sample rows mid-episode, at the cost of a step
 - **10 steps per episode** — agent can refine queries across multiple attempts
-- **Three difficulty tiers** — single-table → multi-join → window functions/CTEs
+- **Seven difficulty tiers** — single-table → joins → window functions → full-database → iterative refinement
 - **MCP endpoint** — plug any MCP-compatible agent in without glue code
 
 ---
@@ -245,10 +277,13 @@ docker run -p 7860:7860 tempo-openenv
 
 - **Real-world domain** — music streaming analytics with skip patterns, discovery sources, and completion rates; not a toy or game
 - **Full OpenEnv compliance** — `openenv.yaml`, typed Pydantic models, `step()`/`reset()`/`state()` API, `inference.py`, `pyproject.toml`
+- **Partial row credit grader** — dense reward signal for RL training; intermediate rewards at 0.40, 0.60, and 0.80 before reaching 0.95
+- **`/explain` action** — unique to this environment; lets agents inspect query plans before submitting
 - **LLM baseline using OpenAI client** — `API_BASE_URL` + `MODEL_NAME` configurable at runtime
 - **Interactive UI** — `/ui` lets humans explore the environment in a browser
-- **MCP protocol** — JSON-RPC 2.0 tool discovery out of the box
+- **MCP protocol** — JSON-RPC 2.0 tool discovery out of the box with 4 tools
 - **Auto-deploy** — GitHub Actions pushes to HF Spaces on every commit
+- **25 pytest tests** — covers all 7 tasks, partial scoring, explain action, and DB integrity
 
 ---
 

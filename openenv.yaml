@@ -44,6 +44,18 @@ tasks:
     description: "Analyse monthly trends, new releases, recommendation performance, and skip-rate patterns over time."
     grader: src/graders/task_realtime_grader.py
 
+  - id: task_expert
+    name: "Expert — Tempo Full-Database Analytics"
+    difficulty: expert
+    description: "Cross-table queries using all 6 tables: playlist stream attribution, artist penetration, skip patterns by mood, and premium power users."
+    grader: src/graders/task_expert_grader.py
+
+  - id: task_iterative
+    name: "Iterative — Tempo Window Functions and Edge Cases"
+    difficulty: iterative
+    description: "Multi-step refinement challenges: running totals, per-user genre rankings, LEFT JOIN edge cases, and above-average completion analysis."
+    grader: src/graders/task_iterative_grader.py
+
 api:
   host: 0.0.0.0
   port: 7860

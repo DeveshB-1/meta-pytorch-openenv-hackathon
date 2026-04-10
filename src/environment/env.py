@@ -93,9 +93,10 @@ class SQLQueryEnv(HackathonEnv):
         Process one agent action.
 
         Action types:
-          query → {"action_type": "query", "payload": {"sql": "...", "question_id": "easy_q1"}}
-          hint  → {"action_type": "hint",  "payload": {"type": "schema"}}
-                  {"action_type": "hint",  "payload": {"type": "sample_rows", "table": "employees"}}
+          query   → {"action_type": "query",   "payload": {"sql": "...", "question_id": "easy_q1"}}
+          hint    → {"action_type": "hint",    "payload": {"type": "schema"}}
+                    {"action_type": "hint",    "payload": {"type": "sample_rows", "table": "streams"}}
+          explain → {"action_type": "explain", "payload": {"sql": "SELECT ..."}}
         """
         if self.current_task is None:
             return StepResult(
@@ -111,6 +112,10 @@ class SQLQueryEnv(HackathonEnv):
         if action_type == "hint":
             obs = self._handle_hint(payload)
             return StepResult(observation=obs, reward=0.05, done=done, info={"action_type": "hint"})
+
+        if action_type == "explain":
+            obs = self._handle_explain(payload)
+            return StepResult(observation=obs, reward=0.05, done=done, info={"action_type": "explain"})
 
         # Default: query
         sql = payload.get("sql", "")
@@ -190,6 +195,21 @@ class SQLQueryEnv(HackathonEnv):
             rows, error = self._execute_sql(f"SELECT * FROM {table} LIMIT 3")
             return {"hint_type": "sample_rows", "table": table, "rows": rows, "error": error}
         return {"error": f"Unknown hint type '{hint_type}'. Use 'schema' or 'sample_rows'."}
+
+    def _handle_explain(self, payload: dict) -> dict:
+        """
+        Run EXPLAIN QUERY PLAN on the given SQL and return the plan steps.
+        Costs a step but rewards 0.05 — lets the agent inspect query execution
+        before committing a step to an actual query.
+        """
+        sql = payload.get("sql", "")
+        if not sql:
+            return {"error": "No SQL provided for explain."}
+        rows, error = self._execute_sql(f"EXPLAIN QUERY PLAN {sql}")
+        if error:
+            return {"action_type": "explain", "error": error, "plan": None}
+        plan_lines = [r.get("detail", str(r)) for r in (rows or [])]
+        return {"action_type": "explain", "plan": plan_lines, "error": None}
 
     def get_query_history(self) -> list[dict]:
         return self.query_history

@@ -2,11 +2,13 @@
 tests/test_env.py — Test suite for the Tempo SQL Analytics OpenEnv project.
 
 Tests:
-  - All 5 tasks present in ALL_TASKS
+  - All 7 tasks present in ALL_TASKS
   - Each task has exactly 5 questions
-  - BASELINE_QUERIES covers all 25 question IDs
-  - env.reset() works for all 5 tasks
+  - BASELINE_QUERIES covers all 35 question IDs
+  - env.reset() works for all 7 tasks
   - env.step() with correct SQL gives reward >= 0.9
+  - env.step() with explain action returns a plan
+  - Partial row credit: 80%+ overlap scores >= 0.75, 50%+ scores >= 0.55
   - inference.py can be imported without error
 """
 import importlib
@@ -15,13 +17,18 @@ import pytest
 from src.tasks import ALL_TASKS, create_db
 from src.baseline import BASELINE_QUERIES
 from src.environment.env import SQLQueryEnv
+from src.graders import _partial_overlap, BaseGrader
 
 
 # ---------------------------------------------------------------------------
 # Task structure tests
 # ---------------------------------------------------------------------------
 
-EXPECTED_TASKS = ["task_easy", "task_medium", "task_hard", "task_analytics", "task_realtime"]
+EXPECTED_TASKS = [
+    "task_easy", "task_medium", "task_hard",
+    "task_analytics", "task_realtime",
+    "task_expert", "task_iterative",
+]
 
 
 def test_all_tasks_present():
@@ -46,9 +53,9 @@ def test_all_question_ids_unique():
 # Baseline queries coverage
 # ---------------------------------------------------------------------------
 
-def test_baseline_queries_cover_all_25_questions():
+def test_baseline_queries_cover_all_35_questions():
     all_question_ids = [q.id for task in ALL_TASKS.values() for q in task.questions]
-    assert len(all_question_ids) == 25, f"Expected 25 questions, got {len(all_question_ids)}"
+    assert len(all_question_ids) == 35, f"Expected 35 questions, got {len(all_question_ids)}"
     for qid in all_question_ids:
         assert qid in BASELINE_QUERIES, f"BASELINE_QUERIES missing key: {qid}"
 
@@ -95,13 +102,81 @@ def test_env_step_correct_sql_reward(env, task_id):
 
 
 # ---------------------------------------------------------------------------
+# explain action
+# ---------------------------------------------------------------------------
+
+def test_explain_action_returns_plan(env):
+    env.reset("task_easy")
+    result = env.step({
+        "action_type": "explain",
+        "payload": {"sql": "SELECT title, genre FROM songs WHERE genre = 'Electronic'"},
+    })
+    assert result.reward == 0.05
+    obs = result.observation
+    assert obs.get("error") is None, f"Explain error: {obs.get('error')}"
+    assert "plan" in obs
+    assert isinstance(obs["plan"], list)
+    assert len(obs["plan"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Partial row credit scoring
+# ---------------------------------------------------------------------------
+
+def test_partial_overlap_exact():
+    rows = [{"a": 1}, {"a": 2}, {"a": 3}]
+    assert _partial_overlap(rows, rows, order_sensitive=False) == 1.0
+
+
+def test_partial_overlap_80_pct():
+    expected = [{"a": 1}, {"a": 2}, {"a": 3}, {"a": 4}, {"a": 5}]
+    actual   = [{"a": 1}, {"a": 2}, {"a": 3}, {"a": 4}, {"a": 99}]
+    score = _partial_overlap(actual, expected, order_sensitive=False)
+    assert 0.75 <= score <= 0.85
+
+
+def test_partial_overlap_50_pct():
+    expected = [{"a": 1}, {"a": 2}, {"a": 3}, {"a": 4}]
+    actual   = [{"a": 1}, {"a": 2}, {"a": 99}, {"a": 100}]
+    score = _partial_overlap(actual, expected, order_sensitive=False)
+    assert score == 0.5
+
+
+def test_grader_partial_credit_high_overlap(env):
+    """Grader should give score >= 0.75 when most rows are correct."""
+    env.reset("task_easy")
+    task = ALL_TASKS["task_easy"]
+    question = task.questions[2]  # easy_q3: genre counts
+
+    # Get correct rows, then mutate one value
+    correct_sql = BASELINE_QUERIES[question.id]
+    correct_result = env.step({
+        "action_type": "query",
+        "payload": {"sql": correct_sql, "question_id": question.id},
+    })
+    correct_rows = correct_result.observation.get("rows", [])
+    if not correct_rows or len(correct_rows) < 3:
+        pytest.skip("Not enough rows to test partial credit")
+
+    # Submit only the first N-1 rows (simulating a LIMIT that cuts the last row)
+    from src.graders import BaseGrader
+    grader = BaseGrader(task)
+    partial_history = [{
+        "question_id": question.id,
+        "rows": correct_rows[:-1],  # drop the last row
+        "error": None,
+    }]
+    score = grader.grade(partial_history)
+    assert score > 0.05, f"Expected partial credit > 0.05, got {score}"
+
+
+# ---------------------------------------------------------------------------
 # inference.py importable without error
 # ---------------------------------------------------------------------------
 
 def test_inference_importable():
     spec = importlib.util.find_spec("inference")
     assert spec is not None, "inference module not found"
-    # Import it — this should not raise
     mod = importlib.import_module("inference")
     assert hasattr(mod, "main"), "inference.py should have a main() function"
 

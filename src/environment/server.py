@@ -21,6 +21,8 @@ from src.graders.task_medium_grader import grader as medium_grader
 from src.graders.task_hard_grader import grader as hard_grader
 from src.graders.task_analytics_grader import grader as analytics_grader
 from src.graders.task_realtime_grader import grader as realtime_grader
+from src.graders.task_expert_grader import grader as expert_grader
+from src.graders.task_iterative_grader import grader as iterative_grader
 from src.baseline import run_baseline_on_env
 
 # ---------------------------------------------------------------------------
@@ -37,6 +39,8 @@ GRADERS = {
     "task_hard":      hard_grader,
     "task_analytics": analytics_grader,
     "task_realtime":  realtime_grader,
+    "task_expert":    expert_grader,
+    "task_iterative": iterative_grader,
 }
 
 # ---------------------------------------------------------------------------
@@ -212,6 +216,17 @@ def mcp(body: MCPRequest):
                         "required": ["type"],
                     }
                 },
+                {
+                    "name": "explain",
+                    "description": "Run EXPLAIN QUERY PLAN on a SQL string. Returns the query plan without executing. Costs a step (reward 0.05) — use to verify complex queries before committing.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "sql": {"type": "string"},
+                        },
+                        "required": ["sql"],
+                    }
+                },
             ]
         }
 
@@ -230,6 +245,10 @@ def mcp(body: MCPRequest):
 
         if name == "hint":
             result = env.step({"action_type": "hint", "payload": args})
+            return {"content": result.model_dump()}
+
+        if name == "explain":
+            result = env.step({"action_type": "explain", "payload": args})
             return {"content": result.model_dump()}
 
         raise HTTPException(status_code=400, detail=f"Unknown tool '{name}'")

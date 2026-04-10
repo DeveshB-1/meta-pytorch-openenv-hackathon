@@ -1,5 +1,12 @@
 """
 Grading logic — compares agent SQL results to expected answers and returns 0.0–1.0 scores.
+
+Scoring tiers:
+  0.95 — exact match (correct columns + all rows match)
+  0.80 — partial match, ≥ 80 % of expected rows present
+  0.60 — partial match, ≥ 50 % of expected rows present
+  0.40 — correct columns, < 50 % rows match
+  0.05 — wrong column structure or SQL error
 """
 from src.tasks import TaskDef
 
@@ -56,7 +63,6 @@ def rows_match(actual: list[dict], expected: list[dict], order_sensitive: bool) 
 
     # Check column structure using first expected row
     if not norm_expected:
-        # Expected empty result — check if actual is also empty
         if not norm_actual:
             return True, "exact"
         return False, "wrong_structure"
@@ -64,8 +70,6 @@ def rows_match(actual: list[dict], expected: list[dict], order_sensitive: bool) 
     expected_cols = set(norm_expected[0].keys())
 
     if not norm_actual:
-        # Agent returned nothing but we expected something
-        # If columns can't be checked, call it wrong structure
         return False, "wrong_structure"
 
     actual_cols = set(norm_actual[0].keys())
@@ -75,7 +79,6 @@ def rows_match(actual: list[dict], expected: list[dict], order_sensitive: bool) 
 
     # Columns match — now compare values
     if not order_sensitive:
-        # Sort rows by their string representation for order-insensitive comparison
         norm_actual   = sorted(norm_actual,   key=lambda r: str(sorted(r.items())))
         norm_expected = sorted(norm_expected, key=lambda r: str(sorted(r.items())))
 
@@ -83,6 +86,31 @@ def rows_match(actual: list[dict], expected: list[dict], order_sensitive: bool) 
         return True, "exact"
 
     return False, "correct_columns_wrong_values"
+
+
+def _partial_overlap(actual: list[dict], expected: list[dict], order_sensitive: bool) -> float:
+    """
+    Fraction of expected rows that appear in the actual result (0.0–1.0).
+
+    Used to give partial credit when columns are right but values differ.
+    Order-insensitive: checks set membership.
+    Order-sensitive: checks positional alignment.
+    """
+    norm_actual   = [normalize_row(r) for r in actual]
+    norm_expected = [normalize_row(r) for r in expected]
+
+    if not norm_expected:
+        return 1.0
+
+    if order_sensitive:
+        matches = sum(a == e for a, e in zip(norm_actual, norm_expected))
+    else:
+        actual_strs = {str(sorted(r.items())) for r in norm_actual}
+        matches = sum(
+            1 for r in norm_expected if str(sorted(r.items())) in actual_strs
+        )
+
+    return matches / len(norm_expected)
 
 
 # ---------------------------------------------------------------------------
@@ -95,18 +123,13 @@ class BaseGrader:
 
     def grade(self, query_history: list[dict]) -> float:
         """
-        Score a completed episode.
+        Score a completed episode with partial-row credit.
 
-        query_history is a list of dicts, each entry from env.step():
-          {
-            "question_id": "easy_q1",
-            "rows": [...],   # None if SQL error
-            "error": str | None
-          }
+        query_history is a list of dicts from env.step():
+          {"question_id": "easy_q1", "rows": [...], "error": str | None}
 
-        Returns float in [0.0, 1.0].
+        Returns float strictly in (0, 1).
         """
-        # Build a map: question_id → list of (rows, error) attempts
         attempts: dict[str, list] = {q.id: [] for q in self.task.questions}
 
         for entry in query_history:
@@ -130,14 +153,22 @@ class BaseGrader:
                 if error or rows is None:
                     score = SCORE_MAP["sql_error"]
                 else:
-                    _, reason = rows_match(rows, question.expected_rows, question.order_sensitive)
-                    score = SCORE_MAP[reason]
+                    matched, reason = rows_match(rows, question.expected_rows, question.order_sensitive)
+                    if matched:
+                        score = SCORE_MAP["exact"]  # 0.95
+                    elif reason == "correct_columns_wrong_values":
+                        overlap = _partial_overlap(rows, question.expected_rows, question.order_sensitive)
+                        if overlap >= 0.8:
+                            score = 0.80
+                        elif overlap >= 0.5:
+                            score = 0.60
+                        else:
+                            score = 0.40
+                    else:
+                        score = SCORE_MAP[reason]  # wrong_structure or sql_error → 0.05
 
                 if score > best:
                     best = score
-
-                if best == 1.0:
-                    break  # can't do better
 
             total_score += best
 
