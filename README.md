@@ -75,6 +75,22 @@ The grader uses **partial row credit** — if an agent gets the right schema and
 
 **35 questions total** across 7 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
 
+### Calibration
+
+Template baseline = hardcoded correct SQL. Theoretical max = 0.9499 (all 5 questions exact). Partial credit kicks in below that.
+
+| Task | Template baseline | Theoretical max | What makes it hard |
+|------|:-----------------:|:---------------:|---------------------|
+| `task_easy` | 0.95 | 0.95 | — straightforward single-table |
+| `task_medium` | 0.84 | 0.95 | JOIN + correct alias ordering |
+| `task_hard` | 0.77 | 0.95 | Window functions, RANK(), CTEs |
+| `task_analytics` | 0.84 | 0.95 | Revenue proxy formula, HAVING filter |
+| `task_realtime` | 0.84 | 0.95 | Date slicing, MoM COALESCE |
+| `task_expert` | 0.63 | 0.95 | All 6 tables, LEFT JOIN attribution |
+| `task_iterative` | 0.81 | 0.95 | LEFT JOIN IS NULL traps, RANK() OVER |
+
+> Template scores below 0.95 mean the reference queries produce equivalent-but-not-byte-identical output (e.g. floating-point rounding differences across SQLite builds) — the partial credit grader captures these correctly. Run `python inference.py` with `HF_TOKEN` set to measure LLM performance.
+
 ---
 
 ## Action & Observation Spaces
@@ -127,7 +143,8 @@ Returns `EXPLAIN QUERY PLAN` output — lets the agent verify join strategy and 
 | `/state` | GET | Current task, step count, history |
 | `/tasks` | GET | All tasks with questions and action schema |
 | `/grader` | GET | Episode score (0.0–1.0) |
-| `/baseline` | GET | Run baseline agent, return scores for all tasks |
+| `/baseline` | GET | Run baseline agent, return scores for all tasks + update leaderboard |
+| `/leaderboard` | GET | Best run per model, sorted by avg score — auto-updated by `/baseline` |
 | `/health` | GET | Liveness probe with DB row counts |
 | `/mcp` | POST | Model Context Protocol JSON-RPC 2.0 |
 | `/ui` | GET | Interactive SQL playground |
@@ -279,6 +296,7 @@ docker run -p 7860:7860 tempo-openenv
 - **Full OpenEnv compliance** — `openenv.yaml`, typed Pydantic models, `step()`/`reset()`/`state()` API, `inference.py`, `pyproject.toml`
 - **Partial row credit grader** — dense reward signal for RL training; intermediate rewards at 0.40, 0.60, and 0.80 before reaching 0.95
 - **`/explain` action** — unique to this environment; lets agents inspect query plans before submitting
+- **`/leaderboard` endpoint** — in-memory benchmark leaderboard, best-run-per-model sorted by avg score, auto-populated by `/baseline`
 - **LLM baseline using OpenAI client** — `API_BASE_URL` + `MODEL_NAME` configurable at runtime
 - **Interactive UI** — `/ui` lets humans explore the environment in a browser
 - **MCP protocol** — JSON-RPC 2.0 tool discovery out of the box with 4 tools

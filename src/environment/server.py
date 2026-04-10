@@ -1,9 +1,10 @@
 """
 OpenEnv-compliant FastAPI server.
 Exposes all required endpoints: /reset, /step, /state, /tasks, /grader, /baseline
-Plus extras: /health, /mcp
+Plus extras: /health, /mcp, /leaderboard
 """
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,10 @@ from src.baseline import run_baseline_on_env
 app = FastAPI(title="OpenEnv SQL Query Environment", version="1.0.0")
 
 env = SQLQueryEnv()
+
+# In-memory leaderboard — persists for the lifetime of the process
+# Each entry: {model, mode, scores, avg_score, timestamp}
+_LEADERBOARD: list[dict] = []
 
 GRADERS = {
     "task_easy":      easy_grader,
@@ -134,22 +139,62 @@ def grader(task_id: str = "task_easy"):
 
 @app.get("/baseline")
 def baseline():
-    """Run baseline policy on all 3 tasks and return scores."""
-    mode = "auto"  # uses Groq if GROQ_API_KEY set, else template
+    """Run baseline policy on all tasks, return scores, and record on leaderboard."""
+    use_llm = bool(
+        os.environ.get("GROQ_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("API_KEY")
+    )
+    mode = "llm" if use_llm else "template"
+    model = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile") if use_llm else "template-sql"
     scores = {}
 
     for task_id in ALL_TASKS:
         env.reset(task_id)
-        run_baseline_on_env(env, task_id, mode=mode)
+        run_baseline_on_env(env, task_id, mode="auto")
         scores[task_id] = GRADERS[task_id].grade(env.get_query_history())
 
-    # Reset env back to easy so it's in a clean state
     env.reset("task_easy")
 
-    return {
-        "mode":   "llm" if (os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")) else "template",
-        "scores": scores,
-    }
+    avg_score = round(sum(scores.values()) / len(scores), 4)
+
+    # Record on leaderboard
+    _LEADERBOARD.append({
+        "model":     model,
+        "mode":      mode,
+        "scores":    scores,
+        "avg_score": avg_score,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    # Keep only the best run per model
+    seen: dict[str, dict] = {}
+    for entry in _LEADERBOARD:
+        m = entry["model"]
+        if m not in seen or entry["avg_score"] > seen[m]["avg_score"]:
+            seen[m] = entry
+    _LEADERBOARD[:] = sorted(seen.values(), key=lambda e: e["avg_score"], reverse=True)
+
+    return {"mode": mode, "model": model, "scores": scores, "avg_score": avg_score}
+
+
+@app.get("/leaderboard")
+def leaderboard():
+    """
+    In-memory leaderboard — best run per model, sorted by avg_score DESC.
+    Updated automatically on every /baseline call.
+    """
+    ranked = [
+        {
+            "rank":      i + 1,
+            "model":     e["model"],
+            "mode":      e["mode"],
+            "avg_score": e["avg_score"],
+            "scores":    e["scores"],
+            "timestamp": e["timestamp"],
+        }
+        for i, e in enumerate(_LEADERBOARD)
+    ]
+    return {"leaderboard": ranked, "entries": len(ranked)}
 
 # ---------------------------------------------------------------------------
 # Extra endpoints

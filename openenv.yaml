@@ -66,5 +66,6 @@ api:
     - /tasks
     - /grader
     - /baseline
+    - /leaderboard
     - /health
     - /mcp
