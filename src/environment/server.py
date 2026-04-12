@@ -124,6 +124,45 @@ def tasks():
     }
 
 
+@app.get("/schema")
+def schema():
+    """Return the action and observation schema for this environment (OpenEnv spec)."""
+    return {
+        "name":        "tempo-sql-analytics-env",
+        "spec_version": 1,
+        "description": "RL environment for SQL analytics over a music streaming database.",
+        "action_schema": {
+            "query": {
+                "action_type": "query",
+                "payload": {"sql": "<SQL string>", "question_id": "<question id>"}
+            },
+            "hint": {
+                "action_type": "hint",
+                "payload": {"type": "schema | sample_rows", "table": "<table (for sample_rows)>"}
+            },
+            "explain": {
+                "action_type": "explain",
+                "payload": {"sql": "<SQL string>"}
+            },
+        },
+        "observation_schema": {
+            "task_id":         "string",
+            "question_id":     "string",
+            "question_index":  "int | null",
+            "rows":            "list[dict] | null",
+            "error":           "string | null",
+            "step":            "int",
+            "steps_remaining": "int",
+            "max_steps":       "int",
+        },
+        "reward_range": [0.05, 0.95],
+        "tasks": [
+            {"id": t.id, "name": t.name, "difficulty": t.difficulty, "n_questions": len(t.questions)}
+            for t in ALL_TASKS.values()
+        ],
+    }
+
+
 @app.get("/grader")
 def grader(task_id: str = "task_easy"):
     """Return grader score for the current episode."""
