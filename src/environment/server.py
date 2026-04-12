@@ -26,6 +26,7 @@ from src.graders.task_realtime_grader import grader as realtime_grader
 from src.graders.task_expert_grader import grader as expert_grader
 from src.graders.task_iterative_grader import grader as iterative_grader
 from src.graders.task_adversarial_grader import grader as adversarial_grader
+from src.graders.task_pytorch_grader import grader as pytorch_grader
 from src.baseline import run_baseline_on_env
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ GRADERS = {
     "task_expert":      expert_grader,
     "task_iterative":   iterative_grader,
     "task_adversarial": adversarial_grader,
+    "task_pytorch":     pytorch_grader,
 }
 
 # ---------------------------------------------------------------------------
@@ -335,7 +337,7 @@ def health():
     """Liveness probe — verifies DB is live and seeded."""
     try:
         counts = {}
-        for table in ("artists", "songs", "users", "streams", "playlists", "playlist_songs"):
+        for table in ("artists", "songs", "users", "streams", "playlists", "playlist_songs", "model_runs"):
             rows, _ = env._execute_sql(f"SELECT COUNT(*) AS n FROM {table}")
             counts[table] = rows[0]["n"] if rows else 0
         return {"status": "ok", "db_stats": counts}

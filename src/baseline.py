@@ -373,6 +373,77 @@ BASELINE_QUERIES: dict[str, str] = {
         ORDER BY completion_rate DESC, title ASC
     """,
 
+    # PYTORCH
+    "pytorch_q1": """
+        WITH final_epoch AS (
+            SELECT model_name, MAX(epoch) AS max_epoch
+            FROM model_runs
+            GROUP BY model_name
+        )
+        SELECT mr.model_name, mr.epoch AS final_epoch, mr.val_acc
+        FROM model_runs mr
+        JOIN final_epoch fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+        ORDER BY mr.val_acc DESC, mr.model_name ASC
+    """,
+    "pytorch_q2": """
+        SELECT model_name, epoch, train_loss, val_loss,
+               ROUND(val_loss - train_loss, 4) AS overfit_gap
+        FROM model_runs
+        WHERE val_loss - train_loss > 0.05
+        ORDER BY overfit_gap DESC, model_name ASC, epoch ASC
+    """,
+    "pytorch_q3": """
+        WITH best AS (
+            SELECT model_name, MAX(val_acc) AS best_val_acc
+            FROM model_runs
+            GROUP BY model_name
+        )
+        SELECT model_name, best_val_acc,
+               RANK() OVER (ORDER BY best_val_acc DESC) AS rank
+        FROM best
+        ORDER BY rank ASC, model_name ASC
+    """,
+    "pytorch_q4": """
+        WITH final_epochs AS (
+            SELECT model_name, MAX(epoch) AS max_epoch
+            FROM model_runs
+            GROUP BY model_name
+        ),
+        final_runs AS (
+            SELECT mr.optimizer, mr.val_loss
+            FROM model_runs mr
+            JOIN final_epochs fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+        )
+        SELECT optimizer, ROUND(AVG(val_loss), 4) AS avg_final_val_loss
+        FROM final_runs
+        GROUP BY optimizer
+        ORDER BY avg_final_val_loss ASC, optimizer ASC
+    """,
+    "pytorch_q5": """
+        WITH epoch_1 AS (
+            SELECT model_name, val_acc AS epoch_1_val_acc
+            FROM model_runs
+            WHERE epoch = 1
+        ),
+        final_e AS (
+            SELECT model_name, MAX(epoch) AS max_epoch
+            FROM model_runs
+            GROUP BY model_name
+        ),
+        final_acc AS (
+            SELECT mr.model_name, mr.val_acc AS final_val_acc
+            FROM model_runs mr
+            JOIN final_e fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+        )
+        SELECT e1.model_name,
+               e1.epoch_1_val_acc,
+               fa.final_val_acc,
+               ROUND(fa.final_val_acc - e1.epoch_1_val_acc, 4) AS improvement
+        FROM epoch_1 e1
+        JOIN final_acc fa ON e1.model_name = fa.model_name
+        ORDER BY improvement DESC, e1.model_name ASC
+    """,
+
     # ADVERSARIAL
     "adversarial_q1": """
         SELECT a.name AS artist_name, COUNT(DISTINCT st.user_id) AS unique_listeners

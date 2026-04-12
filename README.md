@@ -25,7 +25,7 @@ An [OpenEnv](https://github.com/huggingface/openenv)-compliant RL environment wh
 
 ## What is Tempo?
 
-Tempo is a music streaming platform with 6 normalised tables. Every stream record captures *how* a user discovered a song (search / recommendation / playlist / radio / artist page), whether they completed it, and exactly where they skipped — making it uniquely suited for behavioural analytics and agent training.
+Tempo is a music streaming platform with 7 normalised tables, plus a `model_runs` table logging PyTorch training experiments. Every stream record captures *how* a user discovered a song (search / recommendation / playlist / radio / artist page), whether they completed it, and exactly where they skipped — making it uniquely suited for behavioural analytics and agent training.
 
 ### Database
 
@@ -37,8 +37,11 @@ Tempo is a music streaming platform with 6 normalised tables. Every stream recor
 | `streams` | 650 | id, user_id, song_id, played_at, completed, skipped_at_sec, source |
 | `playlists` | 50 | id, name, user_id, is_public, created_at |
 | `playlist_songs` | 199 | playlist_id, song_id, position, added_at |
+| `model_runs` | 24 | run_id, model_name, optimizer, epoch, train_loss, val_loss, train_acc, val_acc, learning_rate, batch_size |
 
 30 artists across 15 countries and 15+ genres — Electronic, K-Pop, Afrobeats, Lo-fi Hip-hop, Jazz Fusion, Bollywood Fusion, Latin, Indie Rock, Metal, Synth-pop, Nordic Folk Electronic, and more.
+
+The `model_runs` table contains training logs for 5 PyTorch architectures (ResNet50, BERT-base, ViT-L16, EfficientNet-B4, GPT2-medium) across 4–5 epochs each, with a deliberate overfit signal in BERT-base at later epochs.
 
 ---
 
@@ -85,8 +88,9 @@ The key design choice is the **dense reward structure**. An agent that returns t
 | `task_expert` | Expert | All 6 tables, playlist attribution, penetration rates | "Artist listener penetration % across all users" |
 | `task_iterative` | Iterative | Running totals, per-user rankings, LEFT JOIN edge cases | "Each user's most-streamed genre using RANK()" |
 | `task_adversarial` | Adversarial | SQL traps: COUNT DISTINCT, HAVING, integer division, ordering | "Unique listeners per artist (not streams)" |
+| `task_pytorch` | Expert | CTEs, window RANK(), overfit detection, optimizer comparison | "Detect epochs where BERT-base val_loss diverges from train_loss" |
 
-**40 questions total** across 8 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
+**45 questions total** across 9 difficulty tiers. Scores are strictly in (0, 1) — partial credit always awarded.
 
 ### Calibration
 
@@ -102,8 +106,9 @@ Template baseline = hardcoded correct SQL. Theoretical max = 0.9499 (all 5 quest
 | `task_expert` | 0.63 | **0.81** | 0.95 | All 6 tables, LEFT JOIN attribution |
 | `task_iterative` | 0.81 | **0.66** | 0.95 | LEFT JOIN IS NULL traps, RANK() OVER |
 | `task_adversarial` | — | **TBD** | 0.95 | COUNT DISTINCT, HAVING, integer division |
+| `task_pytorch` | 0.95 | **TBD** | 0.95 | CTE + window RANK(), overfit detection |
 
-LLM scores measured live with Groq `llama-3.3-70b-versatile` via `/baseline`. The adversarial task specifically targets mistakes LLMs make on production SQL — even strong models often write `COUNT(user_id)` instead of `COUNT(DISTINCT user_id)`, or use `WHERE` instead of `HAVING`. Track live results at `/leaderboard`.
+LLM scores measured live with Groq `llama-3.3-70b-versatile` via `/baseline`. The adversarial task targets common LLM SQL mistakes — `COUNT(user_id)` vs `COUNT(DISTINCT user_id)`, `WHERE` vs `HAVING`. The PyTorch task tests ML-domain SQL: reading training curves, detecting overfitting, and comparing optimizer strategies. Track live results at `/leaderboard`.
 
 ---
 
@@ -183,7 +188,7 @@ curl -X POST https://dev176-openenv-sql-query-env.hf.space/mcp \
 
 ## Baseline & Inference
 
-`inference.py` runs all 7 tasks using the OpenAI-compatible client. Set `API_BASE_URL` + `MODEL_NAME` + `HF_TOKEN` for LLM mode; falls back to template SQL if no key is set. Outputs structured `[START]`/`[STEP]`/`[END]` logs.
+`inference.py` runs all 9 tasks using the OpenAI-compatible client. Set `API_BASE_URL` + `MODEL_NAME` + `HF_TOKEN` for LLM mode; falls back to template SQL if no key is set. Outputs structured `[START]`/`[STEP]`/`[END]` logs.
 
 ```bash
 # Template mode
@@ -321,6 +326,9 @@ Compare training with binary rewards (0/1) against the 5-tier partial credit (0.
 **4. Do adversarial traps transfer to real-world SQL?**
 `task_adversarial` contains traps common in production analytics: `COUNT` vs `COUNT DISTINCT`, `WHERE` vs `HAVING`, integer division truncation. Does training on this task improve performance on external benchmarks like Spider or BIRD?
 
+**5. Does domain-specific context help PyTorch-trained models?**
+`task_pytorch` queries a `model_runs` table with training metrics for ResNet50, BERT-base, ViT-L16, EfficientNet-B4, and GPT2-medium. An agent with pre-training knowledge of PyTorch architecture names and optimizer behaviour (e.g., AdamW + transformers = overfit risk) should outperform one treating it as pure SQL. Does domain knowledge from PyTorch pre-training transfer to SQL analytics on PyTorch-domain data?
+
 ---
 
 ## Setup
@@ -339,7 +347,7 @@ open http://localhost:8000/ui
 # Run inference
 python inference.py
 
-# Run tests (25 tests)
+# Run tests (29 tests)
 python -m pytest tests/ -v
 
 # Validate
@@ -363,7 +371,7 @@ docker run -p 7860:7860 tempo-openenv
 - **Explain action** — agent can run `EXPLAIN QUERY PLAN` before committing, creating a cost/benefit tradeoff for query inspection
 - **Hint action** — request schema or sample rows mid-episode, at the cost of a step
 - **10 steps per episode** — agent can refine queries across multiple attempts
-- **Seven difficulty tiers** — single-table → joins → window functions → full-database → iterative refinement
+- **Nine difficulty tiers** — single-table → joins → window functions → full-database → iterative refinement → PyTorch ML analytics
 - **MCP endpoint** — plug any MCP-compatible agent in without glue code
 
 ---
@@ -377,13 +385,14 @@ docker run -p 7860:7860 tempo-openenv
 - **`/leaderboard` endpoint** — in-memory benchmark leaderboard, best-run-per-model sorted by avg score, auto-populated by `/baseline`
 - **`/episode_stats` endpoint** — per-question breakdown (attempts, best_score, best_sql, solved) for curriculum design and logging
 - **`steps_remaining` in every observation** — agents can make budget-aware decisions without counting steps themselves
-- **`task_adversarial`** — 8th task with 5 SQL traps targeting mistakes LLMs commonly make (COUNT DISTINCT, HAVING, integer division, tie-breaking, correlated subqueries)
-- **Research questions section** — four concrete RL research questions this environment can help answer
+- **`task_adversarial`** — 9th task with 5 SQL traps targeting mistakes LLMs commonly make (COUNT DISTINCT, HAVING, integer division, tie-breaking, correlated subqueries)
+- **`task_pytorch`** — PyTorch-branded ML domain task: query training metrics for ResNet50, BERT-base, ViT-L16, EfficientNet-B4, GPT2-medium; tests CTE patterns, window RANK(), overfit detection, and optimizer comparison — directly relevant to the PyTorch hackathon sponsor
+- **Research questions section** — five concrete RL research questions this environment can help answer
 - **LLM baseline using OpenAI client** — `API_BASE_URL` + `MODEL_NAME` configurable at runtime
 - **Interactive UI** — `/ui` lets humans explore the environment in a browser
 - **MCP protocol** — JSON-RPC 2.0 tool discovery out of the box with 4 tools
 - **Auto-deploy** — GitHub Actions pushes to HF Spaces on every commit
-- **25 pytest tests** — covers all 7 tasks, partial scoring, explain action, and DB integrity
+- **29 pytest tests** — covers all 9 tasks, partial scoring, explain action, model_runs table, and DB integrity
 
 ---
 

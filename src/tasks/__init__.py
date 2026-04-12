@@ -71,6 +71,19 @@ CREATE TABLE playlist_songs (
     FOREIGN KEY (playlist_id) REFERENCES playlists(id),
     FOREIGN KEY (song_id)     REFERENCES songs(id)
 );
+
+CREATE TABLE model_runs (
+    run_id        INTEGER PRIMARY KEY,
+    model_name    TEXT    NOT NULL,
+    optimizer     TEXT    NOT NULL,
+    epoch         INTEGER NOT NULL,
+    train_loss    REAL    NOT NULL,
+    val_loss      REAL    NOT NULL,
+    train_acc     REAL    NOT NULL,
+    val_acc       REAL    NOT NULL,
+    learning_rate REAL    NOT NULL,
+    batch_size    INTEGER NOT NULL
+);
 """
 
 # ---------------------------------------------------------------------------
@@ -1224,6 +1237,44 @@ SEED_PLAYLIST_SONGS = [
     (50,105,5,"2025-01-07"),(50,106,6,"2025-01-07"),(50,103,7,"2025-01-08"),
 ]
 
+# ---------------------------------------------------------------------------
+# PyTorch model training runs (task_pytorch seed data)
+# 5 architectures × epochs — including deliberate overfit signal in BERT-base
+# ---------------------------------------------------------------------------
+
+SEED_MODEL_RUNS = [
+    # run_id  model_name          optimizer  epoch  train_loss  val_loss  train_acc  val_acc  learning_rate  batch_size
+    # ResNet50 — adam — 5 epochs (healthy, no overfit)
+    (1,  "ResNet50",        "adam",  1, 1.85, 1.88, 0.42, 0.40, 0.001,    32),
+    (2,  "ResNet50",        "adam",  2, 1.42, 1.45, 0.58, 0.55, 0.001,    32),
+    (3,  "ResNet50",        "adam",  3, 1.10, 1.12, 0.68, 0.65, 0.001,    32),
+    (4,  "ResNet50",        "adam",  4, 0.85, 0.87, 0.76, 0.73, 0.001,    32),
+    (5,  "ResNet50",        "adam",  5, 0.68, 0.70, 0.82, 0.79, 0.001,    32),
+    # BERT-base — adamw — 5 epochs (overfits at epochs 4-5: val_loss diverges)
+    (6,  "BERT-base",       "adamw", 1, 0.72, 0.70, 0.76, 0.77, 0.0001,   16),
+    (7,  "BERT-base",       "adamw", 2, 0.48, 0.46, 0.85, 0.86, 0.0001,   16),
+    (8,  "BERT-base",       "adamw", 3, 0.35, 0.37, 0.89, 0.87, 0.0001,   16),
+    (9,  "BERT-base",       "adamw", 4, 0.28, 0.45, 0.91, 0.84, 0.0001,   16),
+    (10, "BERT-base",       "adamw", 5, 0.22, 0.51, 0.93, 0.81, 0.0001,   16),
+    # ViT-L16 — adam — 5 epochs (healthy)
+    (11, "ViT-L16",         "adam",  1, 2.10, 2.08, 0.35, 0.36, 0.0003,   64),
+    (12, "ViT-L16",         "adam",  2, 1.65, 1.63, 0.52, 0.53, 0.0003,   64),
+    (13, "ViT-L16",         "adam",  3, 1.28, 1.30, 0.63, 0.62, 0.0003,   64),
+    (14, "ViT-L16",         "adam",  4, 1.02, 1.04, 0.72, 0.70, 0.0003,   64),
+    (15, "ViT-L16",         "adam",  5, 0.82, 0.84, 0.79, 0.77, 0.0003,   64),
+    # EfficientNet-B4 — sgd — 5 epochs (healthy)
+    (16, "EfficientNet-B4", "sgd",   1, 1.62, 1.65, 0.48, 0.44, 0.01,     32),
+    (17, "EfficientNet-B4", "sgd",   2, 1.18, 1.20, 0.64, 0.61, 0.01,     32),
+    (18, "EfficientNet-B4", "sgd",   3, 0.92, 0.93, 0.72, 0.70, 0.01,     32),
+    (19, "EfficientNet-B4", "sgd",   4, 0.74, 0.75, 0.78, 0.76, 0.01,     32),
+    (20, "EfficientNet-B4", "sgd",   5, 0.61, 0.63, 0.83, 0.80, 0.01,     32),
+    # GPT2-medium — adamw — 4 epochs (still improving)
+    (21, "GPT2-medium",     "adamw", 1, 3.42, 3.44, 0.28, 0.27, 0.00005,  8),
+    (22, "GPT2-medium",     "adamw", 2, 2.85, 2.87, 0.38, 0.37, 0.00005,  8),
+    (23, "GPT2-medium",     "adamw", 3, 2.38, 2.40, 0.46, 0.44, 0.00005,  8),
+    (24, "GPT2-medium",     "adamw", 4, 2.02, 2.05, 0.52, 0.50, 0.00005,  8),
+]
+
 
 def create_db() -> sqlite3.Connection:
     """Create a fresh in-memory SQLite DB with Tempo seed data."""
@@ -1236,6 +1287,7 @@ def create_db() -> sqlite3.Connection:
     conn.executemany("INSERT INTO streams VALUES (?,?,?,?,?,?,?)", SEED_STREAMS)
     conn.executemany("INSERT INTO playlists VALUES (?,?,?,?,?)", SEED_PLAYLISTS)
     conn.executemany("INSERT INTO playlist_songs VALUES (?,?,?,?)", SEED_PLAYLIST_SONGS)
+    conn.executemany("INSERT INTO model_runs VALUES (?,?,?,?,?,?,?,?,?,?)", SEED_MODEL_RUNS)
     conn.commit()
     return conn
 
@@ -1903,6 +1955,82 @@ _adversarial_q5_rows = _rows(_ref, """
     ORDER BY uc.stream_count DESC, u.username ASC
 """)
 
+# --- PYTORCH ---
+
+_pytorch_q1_rows = _rows(_ref, """
+    WITH final_epoch AS (
+        SELECT model_name, MAX(epoch) AS max_epoch
+        FROM model_runs
+        GROUP BY model_name
+    )
+    SELECT mr.model_name, mr.epoch AS final_epoch, mr.val_acc
+    FROM model_runs mr
+    JOIN final_epoch fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+    ORDER BY mr.val_acc DESC, mr.model_name ASC
+""")
+
+_pytorch_q2_rows = _rows(_ref, """
+    SELECT model_name, epoch, train_loss, val_loss,
+           ROUND(val_loss - train_loss, 4) AS overfit_gap
+    FROM model_runs
+    WHERE val_loss - train_loss > 0.05
+    ORDER BY overfit_gap DESC, model_name ASC, epoch ASC
+""")
+
+_pytorch_q3_rows = _rows(_ref, """
+    WITH best AS (
+        SELECT model_name, MAX(val_acc) AS best_val_acc
+        FROM model_runs
+        GROUP BY model_name
+    )
+    SELECT model_name, best_val_acc,
+           RANK() OVER (ORDER BY best_val_acc DESC) AS rank
+    FROM best
+    ORDER BY rank ASC, model_name ASC
+""")
+
+_pytorch_q4_rows = _rows(_ref, """
+    WITH final_epochs AS (
+        SELECT model_name, MAX(epoch) AS max_epoch
+        FROM model_runs
+        GROUP BY model_name
+    ),
+    final_runs AS (
+        SELECT mr.optimizer, mr.val_loss
+        FROM model_runs mr
+        JOIN final_epochs fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+    )
+    SELECT optimizer, ROUND(AVG(val_loss), 4) AS avg_final_val_loss
+    FROM final_runs
+    GROUP BY optimizer
+    ORDER BY avg_final_val_loss ASC, optimizer ASC
+""")
+
+_pytorch_q5_rows = _rows(_ref, """
+    WITH epoch_1 AS (
+        SELECT model_name, val_acc AS epoch_1_val_acc
+        FROM model_runs
+        WHERE epoch = 1
+    ),
+    final_e AS (
+        SELECT model_name, MAX(epoch) AS max_epoch
+        FROM model_runs
+        GROUP BY model_name
+    ),
+    final_acc AS (
+        SELECT mr.model_name, mr.val_acc AS final_val_acc
+        FROM model_runs mr
+        JOIN final_e fe ON mr.model_name = fe.model_name AND mr.epoch = fe.max_epoch
+    )
+    SELECT e1.model_name,
+           e1.epoch_1_val_acc,
+           fa.final_val_acc,
+           ROUND(fa.final_val_acc - e1.epoch_1_val_acc, 4) AS improvement
+    FROM epoch_1 e1
+    JOIN final_acc fa ON e1.model_name = fa.model_name
+    ORDER BY improvement DESC, e1.model_name ASC
+""")
+
 TASK_ADVERSARIAL = TaskDef(
     id="task_adversarial",
     name="Adversarial — Tempo SQL Traps",
@@ -1932,6 +2060,58 @@ TASK_ADVERSARIAL = TaskDef(
     ],
 )
 
+TASK_PYTORCH = TaskDef(
+    id="task_pytorch",
+    name="PyTorch Training Analytics",
+    difficulty="expert",
+    description=(
+        "Query a `model_runs` table that logs epoch-by-epoch training metrics for five "
+        "neural network architectures (ResNet50, BERT-base, ViT-L16, EfficientNet-B4, "
+        "GPT2-medium). Questions require CTEs, window functions, and overfitting analysis — "
+        "the kind of SQL a researcher would write to compare PyTorch training experiments."
+    ),
+    questions=[
+        Question(
+            "pytorch_q1",
+            "For each model, return the val_acc at its final training epoch. "
+            "Return model_name, final_epoch, val_acc ordered by val_acc DESC, model_name ASC.",
+            _pytorch_q1_rows, True,
+            ["model_name", "final_epoch", "val_acc"],
+        ),
+        Question(
+            "pytorch_q2",
+            "Detect overfitting: find all model+epoch rows where val_loss exceeds train_loss "
+            "by more than 0.05. Return model_name, epoch, train_loss, val_loss, overfit_gap "
+            "(= ROUND(val_loss - train_loss, 4)). Order by overfit_gap DESC, model_name ASC, epoch ASC.",
+            _pytorch_q2_rows, True,
+            ["model_name", "epoch", "train_loss", "val_loss", "overfit_gap"],
+        ),
+        Question(
+            "pytorch_q3",
+            "Rank each model by its best (MAX) val_acc across all epochs using RANK(). "
+            "Return model_name, best_val_acc, rank. Order by rank ASC, model_name ASC.",
+            _pytorch_q3_rows, True,
+            ["model_name", "best_val_acc", "rank"],
+        ),
+        Question(
+            "pytorch_q4",
+            "Which optimizer achieves the lowest average val_loss at the final epoch of each run? "
+            "Use only the last epoch per model. Return optimizer, avg_final_val_loss "
+            "(= ROUND(AVG(val_loss), 4)). Order by avg_final_val_loss ASC, optimizer ASC.",
+            _pytorch_q4_rows, True,
+            ["optimizer", "avg_final_val_loss"],
+        ),
+        Question(
+            "pytorch_q5",
+            "For each model compute the improvement in val_acc from epoch 1 to the final epoch. "
+            "Return model_name, epoch_1_val_acc, final_val_acc, improvement "
+            "(= ROUND(final_val_acc - epoch_1_val_acc, 4)). Order by improvement DESC, model_name ASC.",
+            _pytorch_q5_rows, True,
+            ["model_name", "epoch_1_val_acc", "final_val_acc", "improvement"],
+        ),
+    ],
+)
+
 ALL_TASKS: dict[str, TaskDef] = {
     "task_easy":         TASK_EASY,
     "task_medium":       TASK_MEDIUM,
@@ -1941,6 +2121,7 @@ ALL_TASKS: dict[str, TaskDef] = {
     "task_expert":       TASK_EXPERT,
     "task_iterative":    TASK_ITERATIVE,
     "task_adversarial":  TASK_ADVERSARIAL,
+    "task_pytorch":      TASK_PYTORCH,
 }
 
 SCHEMA_DDL = """
@@ -1991,4 +2172,16 @@ Table: playlist_songs
   song_id     INTEGER  - FK to songs.id
   position    INTEGER  - track position in playlist (1-indexed)
   added_at    TEXT     - YYYY-MM-DD when song was added
+
+Table: model_runs
+  run_id        INTEGER  - unique run ID
+  model_name    TEXT     - architecture name (ResNet50, BERT-base, ViT-L16, EfficientNet-B4, GPT2-medium)
+  optimizer     TEXT     - optimizer used (adam, adamw, sgd)
+  epoch         INTEGER  - training epoch number (1-indexed)
+  train_loss    REAL     - training loss at this epoch
+  val_loss      REAL     - validation loss at this epoch
+  train_acc     REAL     - training accuracy (0.0–1.0)
+  val_acc       REAL     - validation accuracy (0.0–1.0)
+  learning_rate REAL     - learning rate for this run
+  batch_size    INTEGER  - mini-batch size
 """.strip()

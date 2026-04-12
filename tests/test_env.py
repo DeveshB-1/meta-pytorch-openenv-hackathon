@@ -53,9 +53,9 @@ def test_all_question_ids_unique():
 # Baseline queries coverage
 # ---------------------------------------------------------------------------
 
-def test_baseline_queries_cover_all_40_questions():
+def test_baseline_queries_cover_all_45_questions():
     all_question_ids = [q.id for task in ALL_TASKS.values() for q in task.questions]
-    assert len(all_question_ids) == 40, f"Expected 40 questions, got {len(all_question_ids)}"
+    assert len(all_question_ids) == 45, f"Expected 45 questions, got {len(all_question_ids)}"
     for qid in all_question_ids:
         assert qid in BASELINE_QUERIES, f"BASELINE_QUERIES missing key: {qid}"
 
