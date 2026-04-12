@@ -11,6 +11,8 @@ COPY src/ ./src/
 COPY server/ ./server/
 COPY openenv.yaml .
 COPY inference.py .
+COPY client.py .
+COPY models.py .
 
 EXPOSE 7860
 

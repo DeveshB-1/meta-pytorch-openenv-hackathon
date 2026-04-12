@@ -124,6 +124,27 @@ def tasks():
     }
 
 
+@app.get("/metadata")
+def metadata():
+    """Environment metadata — required by OpenEnv validator."""
+    return {
+        "name":        "tempo-sql-analytics-env",
+        "version":     "1.0.0",
+        "author":      "Dev176",
+        "description": "RL environment for SQL analytics over a music-streaming database. "
+                       "Agents write SQL queries against a SQLite database with 6 tables "
+                       "(artists, songs, users, streams, playlists, playlist_songs) and earn "
+                       "rewards based on query correctness with 5-tier partial-credit scoring.",
+        "spec_version": 1,
+        "tasks": [
+            {"id": t.id, "name": t.name, "difficulty": t.difficulty, "n_questions": len(t.questions)}
+            for t in ALL_TASKS.values()
+        ],
+        "reward_range": [0.05, 0.95],
+        "max_steps":    MAX_STEPS,
+    }
+
+
 @app.get("/schema")
 def schema():
     """Return the action and observation schema for this environment (OpenEnv spec)."""
